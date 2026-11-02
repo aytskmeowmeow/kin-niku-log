@@ -16,13 +16,13 @@
     "@repo/schema": "workspace:*",
     "@repo/ui": "*",
     "@tanstack/react-query": "^5.99.0",
-    "@tanstack/react-router": "^1.170.39",
+    "@tanstack/react-router": "^1.170.46",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.72.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "2.0.0-beta.sha-91c870c02",
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.9",
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
     "@tailwindcss/vite": "^4.3.3",
@@ -30,12 +30,12 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "^6.1.1",
-    "cf": "^1.0.0-beta.12",
+    "cf": "^1.0.0-beta.26",
     "eslint": "^9.39.1",
-    "orval": "^8.8.0",
+    "orval": "^8.46.0",
     "tailwindcss": "^4.2.2",
     "typescript": "5.9.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.5"
   },
   "volta": {
     "extends": "../../package.json"
