@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "prettier": "^3.7.4",
-    "turbo": "^2.9.5",
+    "turbo": "^2.11.10",
     "typescript": "5.9.2"
   },
   "engines": {
@@ -22,7 +22,7 @@
     "packages/*"
   ],
   "overrides": {
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "volta": {
     "node": "22.23.4"
