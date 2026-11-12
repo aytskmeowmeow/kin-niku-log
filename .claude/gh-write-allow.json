@@ -1,0 +1,9 @@
+{
+  "allowed_writes": ["issue comment", "issue close", "issue edit"],
+  "api_writes": [
+    {
+      "method": "POST",
+      "path": "repos/ayatsuki-meowmeow/kin-niku-log/pulls/{number}/comments/{number}/replies"
+    }
+  ]
+}
