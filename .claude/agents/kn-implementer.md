@@ -20,6 +20,7 @@ hooks:
 
 - impl.md の今回の範囲を、design.md の仕様どおりに実装する
 - 単体テストは自由に書いてよい(内部の関数・モジュールのテスト)
+- コーディング規約スキル(ts-type-safety / neverthrow-coding-rules / function-signature-typing など、書くコードの言語・領域に当たるもの)を Skill ツールで読み込み(SKILL.md が `references/rules.md` を案内していたら、それも Read で絶対パスを指定して読む)、それに従って書く。コードレビューでも同じ規約で確認される
 - 終わったら、次を報告する:
   - 変更したファイルと変更の概要
   - 実装中に下した技術的な判断とその理由

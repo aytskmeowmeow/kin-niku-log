@@ -2,19 +2,19 @@
 
 ## 位置づけ
 
-- kn-dev-workflow の「6. レビュー」と「軽量ルート」で、`kn-code-reviewer`(サブエージェント 1 体)がこのチェックリストを使う
-- レビュアーはコードの author ではない(実装は kn-implementer)。メインも acceptance.md と impl.md の author なので、レビューは別エージェントが行う
+- kn-dev-workflow の「6. レビュー」「軽量ルート」「運用ルート」で、`kn-code-reviewer`(サブエージェント 1 体)がこのチェックリストを使う
+- レビュアーはコードの author ではない(実装は kn-implementer、運用ルートではメイン)。メインも acceptance.md と impl.md の author なので、レビューは別エージェントが行う
 - レビュアーは acceptance.md を読んでよい。受け入れ要件の抜けに気づくため。指摘は、メインが言い換えてから実装エージェントに渡す
 - 対象は working diff(コミット範囲を含む)。GitHub PR のレビューは公式 code-review プラグインを使う
 
 ## 読むもの
 
 1. design.md(仕様・決定事項)
-2. acceptance.md(受け入れ要件)
+2. acceptance.md(あれば。受け入れ要件)
 3. impl.md(構成・技術的判断・実装状況)
 4. 差分(`git diff <ベース>`)と、変更されたファイルの周辺
 
-## 5 つの観点
+## 6 つの観点
 
 すべての観点を順に見る。どれかを飛ばさない。
 
@@ -26,6 +26,7 @@
 - API の入出力・エラー時のレスポンスが design.md(`openapi.yaml`)と違う
 - UI の状態遷移・表示条件が design.md と違う
 - design.md に書かれていない領域の判断が必要なもの → 指摘ではなく「仕様への疑問」に出す
+- acceptance.md の無いタスク(運用ルート)では、design.md の要件・決定事項を完了条件として照合する
 
 ### 2. impl.md との整合
 
@@ -53,13 +54,21 @@
 - 過剰なネスト、早期 return で潰せる分岐
 - 低レベルの操作と高レベルの意図が同じ関数に同居している
 
+### 6. コーディング規約(差分内)
+
+コーディング規約スキル(ts-type-safety / neverthrow-coding-rules / function-signature-typing など、差分の言語・領域に当たるもの)のうち、lint で検出されないルールへの違反。
+
+- 該当するスキルの規約を、Skill ツールで読み込んでから差分を見る(規約スキルはリポジトリの外、`~/.claude/skills/` にある)。SKILL.md がルール本体として `references/rules.md` を案内していたら、それも Read で絶対パスを指定して読む
+- lint の設定(`packages/eslint-config/` と、各パッケージの `eslint.config.*`。`apps/*`・`packages/ui` など)で検出されるルールを確かめ、それは除く
+- 指摘には違反したスキル名とルールを書く
+- lint で検出されるものは「指摘しないもの」に当たる。lint 化できそうなルールに気づいたら、指摘とは別に、出力形式の「lint 化の候補」に挙げる
+
 ## 指摘しないもの
 
 - linter / formatter / typechecker が検出するもの(型エラー、import 忘れ、整形、未使用変数)
 - 差分の外にある既存の問題
 - 実務で指摘しない好みの nitpick
 - 意図的に抑止されているもの(`eslint-disable` / 理由付きの TODO など)
-- コーディング規約スキル(ts-type-safety / neverthrow-coding-rules など)が扱う領域
 
 **強さで絞らない。** 上の除外に当たらないものは、確度が低くても挙げる。確度は各指摘に書き、取捨はメインが行う。
 
@@ -75,6 +84,9 @@
 
 分類: 仕様・設計 / 実装判断
 確度: 高 / 中 / 低
+
+## lint 化の候補
+- <観点 6 で見つけた規約のうち、lint ルールにできそうなもの。スキル名・ルール・根拠>(無ければ「なし」)
 ```
 
 指摘が無ければ「指摘なし」と明示する。「概ね良好」のような曖昧な返しはしない。
