@@ -1,0 +1,6 @@
+# kn-sandbox.sh の prepare が、VM の作業場所の .claude/skills/ に写す規約スキル(design.md の D47 (a)・D49)。
+# 1 行に 1 つ、~/.claude/skills/ の下のスキル名を書く。# から行末まではコメント。
+# 規約スキルを増やすときは、ここに 1 行足すだけでよい(スクリプトとエージェント定義は直さない)。
+ts-type-safety
+neverthrow-coding-rules
+function-signature-typing

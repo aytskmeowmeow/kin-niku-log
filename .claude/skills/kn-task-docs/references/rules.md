@@ -91,7 +91,7 @@ docs/issues/<番号>-<slug>/
 
 **網羅:** design.md の機能要件・非機能要件のそれぞれに、少なくとも 1 つの AC が対応していること。ドキュメントレビューで確かめる。
 
-**受け入れテストの置き場所:** パスに `acceptance` を含める(ディレクトリ名かファイル名)。実装エージェントの acceptance ガード hook がこの規約で判定する。
+**受け入れテストの置き場所:** パスに `acceptance` を含める(ディレクトリ名かファイル名)。実装エージェントの VM の作業場所からの除外(`.claude/scripts/kn-sandbox.sh`)と、acceptance ガード hook がこの規約で判定する。
 
 ## impl.md
 

@@ -18,6 +18,6 @@
 
 `.claude/agents/` の 3 つだけを使う。使う場面は `kn-dev-workflow` に書いてある。
 
-- `kn-implementer`: 実装。受け入れ要件と受け入れテストは読めない(hook で止まる)
+- `kn-implementer`: 実装。Docker Sandboxes の VM の中で動かし、受け入れ要件を除いた作業場所だけを渡す(`.claude/scripts/kn-sandbox.sh`。手順は `kn-dev-workflow`)。Agent ツールでは起動しない
 - `kn-doc-reviewer`: acceptance.md / impl.md のレビュー
 - `kn-code-reviewer`: コードレビュー

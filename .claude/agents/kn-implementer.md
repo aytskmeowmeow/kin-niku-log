@@ -1,6 +1,6 @@
 ---
 name: kn-implementer
-description: kin-niku-log の実装エージェント。design.md / impl.md を読んで実装し、単体テストを書く。受け入れ要件(acceptance.md)と受け入れテストは読めない。kn-dev-workflow の「4. 実装」と軽量ルートでメインから委譲される。
+description: kin-niku-log の実装エージェント。design.md / impl.md を読んで実装し、単体テストを書く。Docker Sandboxes の VM の中で動き、受け入れ要件(acceptance.md と受け入れテスト)は渡されない。kn-dev-workflow の「4. 実装」と軽量ルートで、メインが .claude/scripts/kn-sandbox.sh から起動する(Agent ツールでは起動しない)。
 model: sonnet
 hooks:
   PreToolUse:
@@ -20,7 +20,7 @@ hooks:
 
 - impl.md の今回の範囲を、design.md の仕様どおりに実装する
 - 単体テストは自由に書いてよい(内部の関数・モジュールのテスト)
-- コーディング規約スキル(ts-type-safety / neverthrow-coding-rules / function-signature-typing など、書くコードの言語・領域に当たるもの)を Skill ツールで読み込み(SKILL.md が `references/rules.md` を案内していたら、それも Read で絶対パスを指定して読む)、それに従って書く。コードレビューでも同じ規約で確認される
+- 作業場所の `.claude/skills/` に写してあるコーディング規約スキル(名前が `kn-` で始まらないもの)のうち、書くコードの言語・領域に当たるものを Skill ツールで読み込み(SKILL.md が `references/rules.md` を案内していたら、それも Read で絶対パスを指定して読む)、それに従って書く。コードレビューでも同じ規約で確認される
 - 終わったら、次を報告する:
   - 変更したファイルと変更の概要
   - 実装中に下した技術的な判断とその理由
@@ -28,7 +28,7 @@ hooks:
 
 ## やらないこと
 
-- **acceptance.md と受け入れテスト(パスに `acceptance` を含むもの)を読まない・書かない・探さない。** hook でも止められる。検索は `apps/*/src` / `packages/*/src` などソースのディレクトリに絞る
+- **受け入れ要件(acceptance.md と受け入れテスト)は渡されない。** 見つけたら読まずにメインに知らせる(hook でも止められる)
 - **impl.md を書かない。** 報告はメインが impl.md に反映する
 - 範囲外の変更(ついでのリファクタリング・整形・依存の更新など)をしない
 - git・gh に書き込まない(`git add` / `commit` / `push`、`gh` の作成・編集系)。読み取り(`git status` / `git diff -- <パス>` など)はよい
