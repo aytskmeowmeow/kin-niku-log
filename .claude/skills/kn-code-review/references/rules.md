@@ -2,8 +2,8 @@
 
 ## 位置づけ
 
-- kn-dev-workflow の「6. レビュー」「軽量ルート」「運用ルート」で、`kn-code-reviewer`(サブエージェント 1 体)がこのチェックリストを使う
-- レビュアーはコードの author ではない(実装は kn-implementer、運用ルートではメイン)。メインも acceptance.md と impl.md の author なので、レビューは別エージェントが行う
+- kn-dev-workflow の「6. レビュー」「軽量ルート」「運用ルート」「運用ルートの小さな修正」で、`kn-code-reviewer`(サブエージェント 1 体)がこのチェックリストを使う
+- レビュアーはコードの author ではない(実装は kn-implementer、運用ルートとその小さな修正ではメイン)。メインも acceptance.md と impl.md の author なので、レビューは別エージェントが行う
 - レビュアーは acceptance.md を読んでよい。受け入れ要件の抜けに気づくため。指摘は、メインが言い換えてから実装エージェントに渡す
 - 対象は working diff(コミット範囲を含む)。GitHub PR のレビューは公式 code-review プラグインを使う
 
@@ -26,7 +26,7 @@
 - API の入出力・エラー時のレスポンスが design.md(`openapi.yaml`)と違う
 - UI の状態遷移・表示条件が design.md と違う
 - design.md に書かれていない領域の判断が必要なもの → 指摘ではなく「仕様への疑問」に出す
-- acceptance.md の無いタスク(運用ルート)では、design.md の要件・決定事項を完了条件として照合する
+- acceptance.md の無いタスク(運用ルートのタスク)では、design.md の要件・決定事項を完了条件として照合する
 
 ### 2. impl.md との整合
 

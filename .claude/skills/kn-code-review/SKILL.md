@@ -3,9 +3,9 @@ name: kn-code-review
 description: |
   実装差分のコードレビューで見る観点のチェックリストと、指摘の出し方の規約。観点は (1) 外部仕様遵守 / (2) impl.md との整合 / (3) バグ・エッジケース / (4) デグレ影響 / (5) 保守性・可読性 / (6) コーディング規約 の 6 つで、1 人のレビュアーが全部見る。kn-code-reviewer エージェントが使う。
 
-  TRIGGER: kn-code-reviewer としてコードレビューを行うとき。kn-dev-workflow の「6. レビュー」「軽量ルート」「運用ルート」のレビュー。
+  TRIGGER: kn-code-reviewer としてコードレビューを行うとき。kn-dev-workflow の「6. レビュー」「軽量ルート」「運用ルート」「運用ルートの小さな修正」のレビュー。
 
-  SKIP: GitHub PR に対するレビュー(公式 code-review プラグインを使う)、タスク文書(design.md / acceptance.md / impl.md)のレビュー(kn-doc-reviewer が kn-task-docs の観点で行う)。運用ルートでスキル・ドキュメントの差分を見るレビューは SKIP しない。
+  SKIP: GitHub PR に対するレビュー(公式 code-review プラグインを使う)、タスク文書(design.md / acceptance.md / impl.md)のレビュー(kn-doc-reviewer が kn-task-docs の観点で行う)。運用ルートとその小さな修正でスキル・ドキュメントの差分を見るレビューは SKIP しない(通常フローのタスクの小さな修正で design.md などを直した差分も含む)。
 ---
 
 # コードレビュー観点

@@ -1,6 +1,6 @@
 ---
 name: kn-code-reviewer
-description: kin-niku-log のコードレビューエージェント。実装差分を kn-code-review の 6 観点のチェックリストで 1 体でレビューする。kn-dev-workflow の「6. レビュー」・軽量ルート・運用ルートでメインから委譲される。毎回新しく起動される。
+description: kin-niku-log のコードレビューエージェント。実装差分を kn-code-review の 6 観点のチェックリストで 1 体でレビューする。kn-dev-workflow の「6. レビュー」・軽量ルート・運用ルート・運用ルートの小さな修正でメインから委譲される。毎回新しく起動される。
 model: opus
 tools: Read, Grep, Glob, Bash, Skill
 ---
