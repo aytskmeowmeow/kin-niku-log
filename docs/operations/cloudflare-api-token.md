@@ -7,11 +7,11 @@ GitHub Actions からのデプロイ(CD、#24)で使う Cloudflare API トーク
 
 ## 現在のトークン
 
-- 有効期限: 未発行
+- 有効期限: 2027-02-14
 
 上の行は期限のリマインド(下の「リマインドの仕組み」)が読む。書き方の決まり:
 
-- Cloudflare でトークンに設定した**終了日の値をそのまま** `YYYY-MM-DD` で書く。発行前は「未発行」と書く
+- Cloudflare でトークンに設定した**終了日の値をそのまま** `YYYY-MM-DD` で書く(この日の日本時間 23:59:59 まで使える)。発行前は「未発行」と書く
 - この形の行(行頭がハイフン・空白・「有効期限:」)は、この文書の中に 1 つだけにする。2 つ以上あると、リマインドは「期限日を読めない」として知らせる。例を書くときは行頭に置かない
 - 更新は、ブランチ → PR → main へのマージで反映する。定期実行のワークフローは main のこの文書を読む
 
@@ -26,19 +26,19 @@ GitHub Actions からのデプロイ(CD、#24)で使う Cloudflare API トーク
 | 保管場所 | GitHub の Environment `production` の Environment secrets(`CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID`)。Deployment branches は `main` だけ | D7 |
 
 - **権限はまだ確定していない。** 2 つの Worker の Editor だけで `cf deploy` が通るかは未確認で、#24 の最初の CD 実行で確かめる(D6)。足りなかったら、読み取り系の権限から最小限足し、この表と #23 の design.md を更新する
-- 失効のタイミングは、終了日の UTC 0 時(日本時間 9:00)と推定している。初回の発行時にダッシュボードの表示で確かめる
+- 失効のタイミングは、**終了日の日本時間 23:59:59**(確認済み)。初回の発行(終了日 2027-02-14)で、トークンの Summary の JSON の `expires_on` が `2027-02-14T14:59:59Z` だった。ダッシュボードで選んだ終了日を、ブラウザのタイムゾーン(日本時間)の終わりに直していると考えられる。リマインドも今日の日付を日本時間で数え、終了日の当日は「最終日」、翌日から「過ぎた」として知らせる
 
 ## 初回の発行
 
 1. Cloudflare のダッシュボードで **Manage Account → Account API tokens → Create Token**
 2. 権限: Workers の **Editor** を、スコープを個別の Worker にして `kin-niku-log` と `kin-niku-log-api` だけに付ける。ほかの権限は付けない
 3. Token expiration: 終了日を発行日の 90 日後にする。Client IP Address Filtering は設定しない
-4. 作成し、表示されたトークンの値をコピーする(値は一度しか表示されない)。ダッシュボードに表示される失効日時が **終了日の UTC 0 時(日本時間 9:00)** かを確かめる。違っていたら(例: 終了日の終わりまで使える)、リマインドの判定(`scripts/cf-token-expiry.sh`)とこの文書を直す必要があるので、Claude に伝える。初回で確かめられたら、「トークンの仕様」の失効のタイミングの「推定」を「確認済み」に書き換える
+4. 作成し、表示されたトークンの値をコピーする(値は一度しか表示されない)。トークンの Summary の JSON の `expires_on` が **`<終了日>T14:59:59Z`(終了日の日本時間 23:59:59)** かを確かめる。違っていたら(例: 日本時間以外のタイムゾーンのブラウザで発行した)、リマインドの判定(`scripts/cf-token-expiry.sh`)とこの文書を直す必要があるので、Claude に伝える
 5. GitHub のリポジトリの **Settings → Environments → New environment** で `production` を作る
    - Deployment branches and tags: **Selected branches and tags** にし、`main` だけを足す
    - Required reviewers は今は付けない(付けるかは #24 で決める)
 6. `production` の **Environment secrets** に `CLOUDFLARE_API_TOKEN`(4 の値)と `CLOUDFLARE_ACCOUNT_ID` を登録する。アカウント ID は `cloudflare.config.ts` などリポジトリのファイルに書かない
-7. カレンダーに 2 件の予定を入れる: **終了日の 14 日前** と **終了日の前日**(D11)
+7. カレンダーに、**終了日の 14 日前から終了日まで** の期間の予定を 1 件入れる(D11)。この期間のどこかで入れ替える
 8. この文書の「有効期限」の行を終了日に更新し、main にマージする
 
 ## 入れ替え(期限前)
@@ -50,7 +50,7 @@ Roll は使わず、新しいトークンを発行してから古いトークン
 3. CD を 1 回動かして、デプロイが通ることを確かめる(#24 で CD ができてから)
 4. 古いトークンをダッシュボードで削除する
 5. この文書の「有効期限」の行を新しい終了日に更新し、main にマージする
-6. カレンダーの 2 件の予定を新しい終了日に合わせて入れ直す
+6. カレンダーの期間の予定を、新しい終了日に合わせて入れ直す(14 日前から終了日まで)
 7. リマインドの issue(`[運用] Cloudflare API トークンの入れ替え期限`)があれば閉じる。**5 のマージの後に閉じる**(先に閉じると、翌日のワークフローがまた作る)
 8. リポジトリの **Actions** で、ワークフロー「Cloudflare API token expiry reminder」が有効かを確かめる。無効なら有効に戻す
 
@@ -83,7 +83,7 @@ CD のトークンは Worker を作れない(作成には Workers プロダク�
 |---|---|---|
 | Claude Code の SessionStart hook(`.claude/hooks/cf-token-expiry-reminder.sh`) | このリポジトリで Claude Code のセッションを開いたとき | Claude が最初の返答で伝える |
 | GitHub Actions のワークフロー(`.github/workflows/cf-token-expiry-reminder.yml`) | 毎日 UTC 0:17(日本時間 9:17) | issue `[運用] Cloudflare API トークンの入れ替え期限`(ラベル `human`・`ops`)を起こす。開いているものがあれば重ねて作らない |
-| カレンダー | 終了日の 14 日前と前日 | カレンダーの通知 |
+| カレンダー | 終了日の 14 日前から終了日までの期間 | カレンダーの予定と通知 |
 
 - hook とワークフローは、どちらも `scripts/cf-token-expiry.sh` で判定する。期限日の行を読めないときも知らせる
 - **開発を止めている間は、hook もワークフローも働かない。** public リポジトリでは、60 日間動きが無いと定期実行のワークフローが自動で無効になり、手で有効に戻すまで止まったままになる。開発を再開したら、Actions でワークフローが有効かを確かめる
