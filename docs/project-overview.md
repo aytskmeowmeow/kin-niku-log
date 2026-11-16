@@ -121,6 +121,8 @@ monorepo は Turborepo + Bun workspaces(`apps/*`, `packages/*`)。
 - タスク管理は **GitHub Issues** で行う
   - ラベル: `phase-N`(所属 Phase)、`human`(人間担当)、`ai`(AI エージェント担当)
   - タイトルは `[PN] 〜` の形式
+  - 例外: Phase に関係なく繰り返し起きる運用作業の issue(トークンの入れ替えなど)は、タイトルを `[運用] 〜` にし、ラベル `ops` を付ける(#23)
+- 運用手順の文書(トークンの入れ替えなど)は `docs/operations/` に置く。タスクの文書ではない
 - Issue ごとの設計書・実装計画は `docs/issues/<Issue 番号>-<slug>/` に置く
   - `design.md`: 設計(何を・なぜ)
   - `plan.md`: 実装計画(どう進めるか)
@@ -178,6 +180,7 @@ Step 5                     #8 E2E + docs
 
 - PR 時: lint / typecheck / test を自動実行
 - main merge 時: `apps/web` → Cloudflare Workers(静的アセット、Worker `kin-niku-log`)、`apps/api` → Cloudflare Workers へ自動デプロイ
+  - デプロイに使う Cloudflare API トークンの仕様と運用: [`docs/operations/cloudflare-api-token.md`](operations/cloudflare-api-token.md)
 - **本番マイグレーション適用のみ** GitHub Environments の Required reviewers 機能で
   人間承認を挟む(Human on the loop の主要な実装ポイント)
 
