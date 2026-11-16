@@ -33,7 +33,12 @@ status=$(bash "$script" 2>/dev/null) || status=
 read -r state expiry days _ <<<"$status"
 case $state in
   ok | not-issued) exit 0 ;;
-  due) remind "あと ${days} 日で期限(${expiry})が切れます。入れ替えてください。" ;;
+  due)
+    if [ "$days" = 0 ]; then
+      remind "今日(${expiry})が期限の最終日です。日本時間 23:59 に切れます。入れ替えてください。"
+    fi
+    remind "期限(${expiry})まで残り ${days} 日です。入れ替えてください。"
+    ;;
   expired) remind "期限(${expiry})を過ぎています。CD のデプロイは失敗します。入れ替えてください。" ;;
   invalid) remind "運用文書の期限日を読めません(${status#invalid })。リマインドが働いていない状態です。" ;;
   invalid-today) remind "今日の日付の上書き(環境変数 CF_TOKEN_EXPIRY_TODAY=${expiry})が YYYY-MM-DD の実在する日付でないため、期限を判定できませんでした。" ;;

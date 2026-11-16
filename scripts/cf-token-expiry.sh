@@ -8,18 +8,19 @@
 # 使い方: scripts/cf-token-expiry.sh [運用文書のパス]
 #   運用文書のパスを省くと、このスクリプトの場所から求めたリポジトリのルートの
 #   docs/operations/cloudflare-api-token.md を読む(カレントディレクトリに依存しない)。
-#   環境変数 CF_TOKEN_EXPIRY_TODAY(YYYY-MM-DD)で今日の日付を上書きできる(テスト用)。
+#   環境変数 CF_TOKEN_EXPIRY_TODAY(YYYY-MM-DD)で今日の日付(日本時間)を上書きできる(テスト用)。
 #
 # 出力(標準出力に 1 行):
 #   not-issued                  期限日の行が「未発行」
 #   ok <期限日> <残り日数>       残り 15 日以上
-#   due <期限日> <残り日数>      残り 1〜14 日
-#   expired <期限日> <経過日数>  残り 0 日以下(終了日の UTC 0 時に失効するとみなす)
+#   due <期限日> <残り日数>      残り 0〜14 日(0 は終了日の当日。その日の終わりまで使える)
+#   expired <期限日> <経過日数>  終了日を過ぎた(経過日数は 1 以上)
 #   invalid <理由>               期限日を読めない(運用文書の問題)
 #   invalid-today <値>           今日の日付の上書き(CF_TOKEN_EXPIRY_TODAY)が不正(呼び出し側の問題)
 # 終了コードは常に 0。呼び出し側が状態で分岐する。
 #
-# 日付はすべて UTC で扱う(Cloudflare のトークンの終了日が UTC 0 時単位のため)。
+# 今日の日付は日本時間で数える。トークンは終了日の日本時間 23:59:59 に失効するため
+# (初回の発行で確認。docs/operations/cloudflare-api-token.md の「トークンの仕様」)。
 
 set -u
 
@@ -32,6 +33,7 @@ repo_root=$(dirname "$script_dir")
 doc=${1:-"$repo_root/docs/operations/cloudflare-api-token.md"}
 
 # YYYY-MM-DD を、その日の UTC 0 時の UNIX 時刻に直す。実在しない日付なら失敗する。
+# 暦日の差を取るための正規化で、日付の文字列がどのタイムゾーンの日付かとは関係しない。
 # macOS(BSD の date)と Linux(GNU の date)の両方で動かす。
 to_epoch() {
   local d=$1 e back
@@ -50,7 +52,8 @@ to_epoch() {
 
 # 今日の日付は運用文書より先に確かめる(打ち間違いが not-issued や invalid に隠れないように)
 today=${CF_TOKEN_EXPIRY_TODAY:-}
-[ -n "$today" ] || today=$(date -u +%Y-%m-%d)
+# JST-9 は UTC+9 の固定オフセット(日本に夏時間は無い)。タイムゾーンのデータが無い環境でも効く
+[ -n "$today" ] || today=$(TZ=JST-9 date +%Y-%m-%d)
 if ! today_epoch=$(to_epoch "$today"); then
   echo "invalid-today $today"
   exit 0
@@ -95,7 +98,7 @@ if ! expiry_epoch=$(to_epoch "$value"); then
 fi
 
 remaining=$(((expiry_epoch - today_epoch) / 86400))
-if [ "$remaining" -le 0 ]; then
+if [ "$remaining" -lt 0 ]; then
   echo "expired $value $((-remaining))"
 elif [ "$remaining" -le "$THRESHOLD_DAYS" ]; then
   echo "due $value $remaining"
