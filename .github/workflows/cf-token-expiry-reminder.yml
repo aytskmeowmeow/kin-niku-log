@@ -1,0 +1,102 @@
+# Cloudflare API トークン(CD 用)の期限が近い・切れた・読めないとき、issue を起こす。
+# 判定は scripts/cf-token-expiry.sh(SessionStart hook と共用)。
+# 経緯と判断: docs/issues/23-cf-token-scope/(design.md の D9・D10)
+name: Cloudflare API token expiry reminder
+
+on:
+  schedule:
+    # 毎日 UTC 0:17(JST 9:17)。毎時 0 分の混雑を避ける
+    - cron: "17 0 * * *"
+  workflow_dispatch:
+    inputs:
+      today:
+        description: "動作確認用: 今日の日付を上書きする(YYYY-MM-DD)。空なら実際の日付"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+# 定期実行と手動実行が重なっても、両方が「0 件」を見て issue を 2 件作らないよう、1 本ずつ動かす
+concurrency:
+  group: cf-token-expiry-reminder
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the expiry script and the operations doc
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            scripts/cf-token-expiry.sh
+            docs/operations/cloudflare-api-token.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Open an issue when the token needs rotation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CF_TOKEN_EXPIRY_TODAY: ${{ inputs.today }}
+          TITLE: "[運用] Cloudflare API トークンの入れ替え期限"
+          DOC_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/docs/operations/cloudflare-api-token.md
+        run: |
+          # gh issue list が失敗したときに「0 件」とみなして重複して作らないよう、パイプの失敗も止める
+          set -o pipefail
+          status=$(bash scripts/cf-token-expiry.sh)
+          echo "status: ${status}"
+          read -r state expiry days _ <<<"${status}"
+
+          case "${state}" in
+            ok | not-issued)
+              exit 0
+              ;;
+            due)
+              if [ "${days}" = 0 ]; then
+                summary="有効期限は今日(${expiry})の日本時間 23:59 までです。期限が切れると CD のデプロイが失敗します。"
+              else
+                summary="有効期限 ${expiry} まで、残り ${days} 日です。期限が切れると CD のデプロイが失敗します。"
+              fi
+              ;;
+            expired)
+              summary="有効期限 ${expiry} を ${days} 日過ぎています。CD のデプロイは失敗します。"
+              ;;
+            invalid)
+              summary="運用文書の期限日を読めません(${status#invalid })。期限のリマインドが働いていない状態です。"
+              ;;
+            invalid-today)
+              # 手動実行の入力 today の打ち間違い。issue は作らず、ジョブを失敗させて気づかせる
+              echo "::error::入力 today(${expiry})が YYYY-MM-DD の実在する日付ではありません"
+              exit 1
+              ;;
+            *)
+              summary="期限チェックの結果を解釈できませんでした(${status})。"
+              ;;
+          esac
+
+          # open な issue を全件取り、タイトルの完全一致で数える。
+          # - ラベルでは絞らない(人がラベルを付け替えても重複して作らないように)
+          # - --search は使わない(検索 API は作成直後の issue を返さないことがあり、重複の原因になる)
+          # - open な issue は 1000 件を超えない前提
+          open_count=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 1000 --json title |
+            jq --arg t "${TITLE}" '[.[] | select(.title == $t)] | length')
+          if [ "${open_count}" -gt 0 ]; then
+            echo "同じタイトルの open な issue があるので作らない"
+            exit 0
+          fi
+
+          body=$(cat <<EOF
+          ${summary}
+
+          入れ替えの手順は運用文書を参照してください: ${DOC_URL}
+
+          運用文書の期限日の更新が main にマージされてから、この issue を閉じてください(先に閉じると、翌日また作られます)。
+
+          ---
+          この issue は .github/workflows/cf-token-expiry-reminder.yml が自動で作成しました。本文は作成時点の状態です。
+          EOF
+          )
+          gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --label human --label ops --body "${body}"
