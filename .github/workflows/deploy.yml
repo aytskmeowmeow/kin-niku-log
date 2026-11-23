@@ -1,0 +1,205 @@
+# main への push と手動実行で、api → web の順に Cloudflare へデプロイする(CD)。
+# main 以外からの手動実行は、デプロイ前の確認(check ジョブ)までで終わる。
+# 仕様: docs/issues/24-cd/design.md(D1〜D21)/ 運用: docs/operations/deploy.md
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# main のデプロイは 1 本ずつ動かし、実行中のものは最後まで走らせる(待ちは最新の 1 本だけ残る)。
+# main 以外は実行ごとに別のグループにして、main の順番待ちに入れない
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'deploy-production' || format('deploy-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+env:
+  CF_SEND_TELEMETRY: "false"
+
+jobs:
+  # デプロイ前の確認(D5)とビルド(D4)。Environment なし・トークンなし。すべての起動で動く
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.5"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Check types
+        run: bun run check-types
+
+      - name: Build api
+        working-directory: apps/api
+        run: node_modules/.bin/cf build
+
+      - name: Build web
+        working-directory: apps/web
+        run: node_modules/.bin/cf build
+
+      - name: Dry-run deploy api
+        working-directory: apps/api
+        run: node_modules/.bin/cf deploy --prebuilt --mode production --dry-run
+
+      - name: Dry-run deploy web
+        working-directory: apps/web
+        run: node_modules/.bin/cf deploy --prebuilt --mode production --dry-run
+
+      - name: Check the api bundle has no dev-only code
+        run: bash scripts/cd/check-api-bundle.sh
+
+      # アプリごとに 1 つずつ上げる(複数パスをまとめると共通の祖先がルートになり、戻す場所を取り違えやすい)。
+      # .vite/manifest.json などドットのファイルを含めるため include-hidden-files が要る
+      - name: Upload api build output
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-output-api
+          path: apps/api/.cloudflare/output
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload web build output
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-output-web
+          path: apps/web/.cloudflare/output
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  # デプロイとデプロイ後の確認。main だけ。api → api の確認 → web → web の確認(D3・D14)。
+  # continue-on-error や if: always() は使わない(どこかで失敗したら、後の step は動かない)
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      API_URL: https://kin-niku-log-api.aya-ayatsuki.workers.dev
+      WEB_URL: https://kin-niku-log.aya-ayatsuki.workers.dev
+    steps:
+      # checkout は download より先(checkout が ignore されている .cloudflare/ を消しうるため)
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.5"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      # cf を動かすために入れる(ビルドはしない)
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download api build output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output-api
+          path: apps/api/.cloudflare/output
+
+      - name: Download web build output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output-web
+          path: apps/web/.cloudflare/output
+
+      - name: Verify the build outputs are in place
+        run: |
+          for app in api web; do
+            if [ ! -f "apps/${app}/.cloudflare/output/v0/config.json" ]; then
+              echo "::error::apps/${app}/.cloudflare/output/v0/config.json が無い(アーティファクトが戻っていない)"
+              exit 1
+            fi
+          done
+
+      # デプロイの前後で最新のデプロイの ID を比べ、何も上げずに終わった cf deploy を失敗にする(D18)。
+      # 一覧の JSON には author_email などが含まれるので、ログには ID だけを出す
+      - name: Deploy api
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER: kin-niku-log-api
+        run: |
+          set -euo pipefail
+          latest_id() {
+            local id
+            id=$(node_modules/.bin/cf workers deployments list --worker "${WORKER}" | jq -r '.deployments[0].id // empty')
+            if [ -z "${id}" ]; then
+              echo "::error::${WORKER} のデプロイの ID を取り出せなかった" >&2
+              return 1
+            fi
+            printf '%s' "${id}"
+          }
+          before=$(latest_id)
+          echo "before: ${before}"
+          node_modules/.bin/cf deploy --prebuilt --mode production
+          after=$(latest_id)
+          echo "after: ${after}"
+          if [ "${before}" = "${after}" ]; then
+            echo "::error::cf deploy は終了したが、${WORKER} のデプロイは増えていない(何も上げずに終わった)"
+            exit 1
+          fi
+
+      - name: Smoke test api
+        run: bash scripts/cd/smoke.sh api "${API_URL}"
+
+      - name: Deploy web
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER: kin-niku-log
+        run: |
+          set -euo pipefail
+          latest_id() {
+            local id
+            id=$(node_modules/.bin/cf workers deployments list --worker "${WORKER}" | jq -r '.deployments[0].id // empty')
+            if [ -z "${id}" ]; then
+              echo "::error::${WORKER} のデプロイの ID を取り出せなかった" >&2
+              return 1
+            fi
+            printf '%s' "${id}"
+          }
+          before=$(latest_id)
+          echo "before: ${before}"
+          node_modules/.bin/cf deploy --prebuilt --mode production
+          after=$(latest_id)
+          echo "after: ${after}"
+          if [ "${before}" = "${after}" ]; then
+            echo "::error::cf deploy は終了したが、${WORKER} のデプロイは増えていない(何も上げずに終わった)"
+            exit 1
+          fi
+
+      - name: Smoke test web
+        run: bash scripts/cd/smoke.sh web "${WEB_URL}"
