@@ -25,7 +25,7 @@ GitHub Actions からのデプロイ(CD、#24)で使う Cloudflare API トーク
 | IP 制限 | なし(GitHub ホストランナーの IP は固定でないため) | D3 |
 | 保管場所 | GitHub の Environment `production` の Environment secrets(`CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID`)。Deployment branches は `main` だけ | D7 |
 
-- **権限はまだ確定していない。** 2 つの Worker の Editor だけで `cf deploy` が通るかは未確認で、#24 の最初の CD 実行で確かめる(D6)。足りなかったら、読み取り系の権限から最小限足し、この表と #23 の design.md を更新する
+- 権限は 2 つの Worker の Editor だけで足りる(2026-11-23 に #24 の CD で確認)。`cf deploy` と、CD がデプロイの前後に呼ぶ `cf workers deployments list` の両方が通った。読み取り系の権限は足していない(#23 D6、#24 D19)
 - 失効のタイミングは、**終了日の日本時間 23:59:59**(確認済み)。初回の発行(終了日 2027-02-14)で、トークンの Summary の JSON の `expires_on` が `2027-02-14T14:59:59Z` だった。ダッシュボードで選んだ終了日を、ブラウザのタイムゾーン(日本時間)の終わりに直していると考えられる。リマインドも今日の日付を日本時間で数え、終了日の当日は「最終日」、翌日から「過ぎた」として知らせる
 
 ## 初回の発行
@@ -73,6 +73,7 @@ CD のトークンは Worker を作れない(作成には Workers プロダク�
 
 - **ふだんは `cf auth logout` でログアウトしておく**(CD が動くので、ローカルの `cf` の OAuth ログイン(ほぼ全スコープ)は常には要らない)。Worker の作成、シークレットの登録、障害時の手動デプロイなど、必要なときだけ人間が `cf auth login` でログインし、終わったらログアウトする(D4)
 - ログインの頻度や手間が問題になったら、スコープを絞ったログイン(`cf auth login --scopes ...`)を検討する
+- この文書と [`deploy.md`](deploy.md) の `cf` は、Cloudflare の CLI のこと。グローバルには入れておらず、各アプリの依存に入っている。`apps/api` などのディレクトリで `node_modules/.bin/cf` として呼ぶ(シェルに同じ名前のエイリアスや関数があると、`cf` だけではそちらが動く)
 
 ## リマインドの仕組み
 
