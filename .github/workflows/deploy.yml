@@ -1,12 +1,18 @@
 # main への push と手動実行で、api → web の順に Cloudflare へデプロイする(CD)。
 # main 以外からの手動実行は、デプロイ前の確認(check ジョブ)までで終わる。
-# 仕様: docs/issues/24-cd/design.md(D1〜D21)/ 運用: docs/operations/deploy.md
+# 仕様: docs/issues/24-cd/design.md(D1〜D21)・docs/issues/32-cd-auto-rollback/design.md(D1〜D18)/ 運用: docs/operations/deploy.md
 name: Deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      simulate_check_failure:
+        description: "動作確認用: デプロイ直後の確認を失敗扱いにする Worker。main からの実行でだけ効く"
+        type: choice
+        options: [none, api, web]
+        default: none
 
 permissions:
   contents: read
@@ -90,13 +96,21 @@ jobs:
           retention-days: 1
 
   # デプロイとデプロイ後の確認。main だけ。api → api の確認 → web → web の確認(D3・D14)。
-  # continue-on-error や if: always() は使わない(どこかで失敗したら、後の step は動かない)
+  # 失敗を成功に変える continue-on-error は使わない。どこかで失敗したら後の step は動かないが、
+  # ロールバックの step(if: failure())だけは失敗の後に動く。issue を作るのは別ジョブ report-rollback。
+  # cf や確認が応答しないまま止まっても、ジョブの時間切れ(40 分)より先に step が失敗してロールバックが動くよう、
+  # cf を呼ぶ step と確認の step には step 単位の timeout-minutes を付けている(api が失敗する最悪の経路でも 40 分に収まる)
   deploy:
     needs: check
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     environment: production
+    outputs:
+      rollback_target: ${{ steps.rollback_target.outputs.target }}
+      rollback_status: ${{ steps.rollback.outputs.status }}
+      rollback_worker: ${{ steps.rollback.outputs.worker || steps.rollback_target.outputs.worker }}
+      rollback_version: ${{ steps.rollback.outputs.version }}
     env:
       API_URL: https://kin-niku-log-api.aya-ayatsuki.workers.dev
       WEB_URL: https://kin-niku-log.aya-ayatsuki.workers.dev
@@ -142,9 +156,12 @@ jobs:
             fi
           done
 
-      # デプロイの前後で最新のデプロイの ID を比べ、何も上げずに終わった cf deploy を失敗にする(D18)。
-      # 一覧の JSON には author_email などが含まれるので、ログには ID だけを出す
-      - name: Deploy api
+      # デプロイの前に、戻し先(その Worker の今の先頭のデプロイの ID と versions)を取る(#32 D11)。
+      # 取れなければここで失敗し、デプロイには進まない。一覧の JSON には author_email などが含まれるので、
+      # ログと出力には ID と versions だけを出す
+      - name: Record api's current deployment
+        id: api_before
+        timeout-minutes: 2
         working-directory: apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -152,29 +169,51 @@ jobs:
           WORKER: kin-niku-log-api
         run: |
           set -euo pipefail
-          latest_id() {
-            local id
-            id=$(node_modules/.bin/cf workers deployments list --worker "${WORKER}" | jq -r '.deployments[0].id // empty')
-            if [ -z "${id}" ]; then
-              echo "::error::${WORKER} のデプロイの ID を取り出せなかった" >&2
-              return 1
-            fi
-            printf '%s' "${id}"
-          }
-          before=$(latest_id)
-          echo "before: ${before}"
+          deployment=$(bash ../../scripts/cd/current-deployment.sh "${WORKER}")
+          id=$(jq -r '.id' <<<"${deployment}")
+          echo "before: ${id}"
+          {
+            echo "deployment=${deployment}"
+            echo "id=${id}"
+          } >>"${GITHUB_OUTPUT}"
+
+      # デプロイの前後で最新のデプロイの ID を比べ、何も上げずに終わった cf deploy を失敗にする(#24 D18)。
+      # 前の ID は「Record api's current deployment」で取ったもの
+      - name: Deploy api
+        id: deploy_api
+        timeout-minutes: 5
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER: kin-niku-log-api
+          BEFORE_ID: ${{ steps.api_before.outputs.id }}
+        run: |
+          set -euo pipefail
           node_modules/.bin/cf deploy --prebuilt --mode production
-          after=$(latest_id)
+          after=$(bash ../../scripts/cd/current-deployment.sh "${WORKER}" | jq -r '.id')
           echo "after: ${after}"
-          if [ "${before}" = "${after}" ]; then
+          if [ "${BEFORE_ID}" = "${after}" ]; then
             echo "::error::cf deploy は終了したが、${WORKER} のデプロイは増えていない(何も上げずに終わった)"
             exit 1
           fi
 
+      # SIMULATE は手動実行の入力 simulate_check_failure(push では空)。デプロイ直後の 1 回目の確認だけに効く(#32 D6・D15)
       - name: Smoke test api
-        run: bash scripts/cd/smoke.sh api "${API_URL}"
+        id: smoke_api
+        timeout-minutes: 12
+        env:
+          SIMULATE: ${{ inputs.simulate_check_failure }}
+        run: |
+          if [ "${SIMULATE}" = api ]; then
+            echo "::error::確認を失敗扱いにした(main からの手動実行の入力 simulate_check_failure)"
+            exit 1
+          fi
+          bash scripts/cd/smoke.sh api "${API_URL}"
 
-      - name: Deploy web
+      - name: Record web's current deployment
+        id: web_before
+        timeout-minutes: 2
         working-directory: apps/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -182,24 +221,176 @@ jobs:
           WORKER: kin-niku-log
         run: |
           set -euo pipefail
-          latest_id() {
-            local id
-            id=$(node_modules/.bin/cf workers deployments list --worker "${WORKER}" | jq -r '.deployments[0].id // empty')
-            if [ -z "${id}" ]; then
-              echo "::error::${WORKER} のデプロイの ID を取り出せなかった" >&2
-              return 1
-            fi
-            printf '%s' "${id}"
-          }
-          before=$(latest_id)
-          echo "before: ${before}"
+          deployment=$(bash ../../scripts/cd/current-deployment.sh "${WORKER}")
+          id=$(jq -r '.id' <<<"${deployment}")
+          echo "before: ${id}"
+          {
+            echo "deployment=${deployment}"
+            echo "id=${id}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Deploy web
+        id: deploy_web
+        timeout-minutes: 5
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER: kin-niku-log
+          BEFORE_ID: ${{ steps.web_before.outputs.id }}
+        run: |
+          set -euo pipefail
           node_modules/.bin/cf deploy --prebuilt --mode production
-          after=$(latest_id)
+          after=$(bash ../../scripts/cd/current-deployment.sh "${WORKER}" | jq -r '.id')
           echo "after: ${after}"
-          if [ "${before}" = "${after}" ]; then
+          if [ "${BEFORE_ID}" = "${after}" ]; then
             echo "::error::cf deploy は終了したが、${WORKER} のデプロイは増えていない(何も上げずに終わった)"
             exit 1
           fi
 
       - name: Smoke test web
-        run: bash scripts/cd/smoke.sh web "${WEB_URL}"
+        id: smoke_web
+        timeout-minutes: 4
+        env:
+          SIMULATE: ${{ inputs.simulate_check_failure }}
+        run: |
+          if [ "${SIMULATE}" = web ]; then
+            echo "::error::確認を失敗扱いにした(main からの手動実行の入力 simulate_check_failure)"
+            exit 1
+          fi
+          bash scripts/cd/smoke.sh web "${WEB_URL}"
+
+      # ロールバックの対象を 1 か所で決める(#32 D1・D2)。api の deploy か smoke が失敗 → api(web はまだデプロイしていない)、
+      # web の deploy か smoke が失敗 → web(api は戻さない)、それ以外(戻し先の記録の失敗など)→ target が空(その Worker はまだデプロイしていない)。
+      # 戻し先の JSON は ID と versions だけ(「Record … current deployment」の出力をそのまま渡す)
+      - name: Decide the rollback target
+        id: rollback_target
+        if: ${{ failure() }}
+        env:
+          DEPLOY_API: ${{ steps.deploy_api.outcome }}
+          SMOKE_API: ${{ steps.smoke_api.outcome }}
+          DEPLOY_WEB: ${{ steps.deploy_web.outcome }}
+          SMOKE_WEB: ${{ steps.smoke_web.outcome }}
+          API_PRIOR: ${{ steps.api_before.outputs.deployment }}
+          WEB_PRIOR: ${{ steps.web_before.outputs.deployment }}
+        run: |
+          set -euo pipefail
+          if [ "${DEPLOY_API}" = failure ] || [ "${SMOKE_API}" = failure ]; then
+            target=api app=apps/api worker=kin-niku-log-api url="${API_URL}" prior="${API_PRIOR}"
+          elif [ "${DEPLOY_WEB}" = failure ] || [ "${SMOKE_WEB}" = failure ]; then
+            target=web app=apps/web worker=kin-niku-log url="${WEB_URL}" prior="${WEB_PRIOR}"
+          else
+            target="" app="" worker="" url="" prior=""
+            echo "ロールバックの対象は無い(デプロイしていない Worker は戻さない)"
+          fi
+          echo "target: ${target:-なし}"
+          {
+            echo "target=${target}"
+            echo "app=${app}"
+            echo "worker=${worker}"
+            echo "url=${url}"
+            echo "prior=${prior}"
+          } >>"${GITHUB_OUTPUT}"
+
+      # デプロイか確認が失敗した Worker だけを、デプロイの前のバージョンに戻す(#32 D1・D2)。
+      # 結果(戻した・戻せなかった・戻したが確認が通らない・戻すものが無い)は rollback.sh が出力し、この step は失敗にしない
+      - name: Roll back
+        id: rollback
+        if: ${{ failure() && steps.rollback_target.outputs.target != '' }}
+        timeout-minutes: 15
+        working-directory: ${{ steps.rollback_target.outputs.app }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TARGET: ${{ steps.rollback_target.outputs.target }}
+          WORKER: ${{ steps.rollback_target.outputs.worker }}
+          CHECK_URL: ${{ steps.rollback_target.outputs.url }}
+          PRIOR: ${{ steps.rollback_target.outputs.prior }}
+        run: bash ../../scripts/cd/rollback.sh "${TARGET}" "${WORKER}" "${PRIOR}" "${CHECK_URL}"
+
+  # 戻せなかったとき・戻したが確認が通らないときに、運用の issue を作る(開いていればコメントする)(#32 D5・D7〜D9・D13・D17)。
+  # 作りは cf-token-expiry-reminder.yml と同じ。issues: write はこのジョブにだけ付ける。
+  # 動く条件: ロールバックの対象があり(rollback_target が空でない)、結果が rolled_back / not_needed 以外。
+  # 結果が空(ロールバックの step が結果を出さずに止まった。時間切れなど)も「戻せたか分からない」として動く。
+  # 対象が無い(デプロイしていない・成功した)ときと、実行を Cancel したときは動かない
+  report-rollback:
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.outputs.rollback_target != '' && !contains(fromJSON('["rolled_back","not_needed"]'), needs.deploy.outputs.rollback_status) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open an issue or comment on the open one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "[運用] CD の自動ロールバックに失敗した"
+          STATUS: ${{ needs.deploy.outputs.rollback_status }}
+          WORKER: ${{ needs.deploy.outputs.rollback_worker }}
+          VERSION: ${{ needs.deploy.outputs.rollback_version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DOC_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/docs/operations/deploy.md
+        run: |
+          # gh issue list が失敗したときに「0 件」とみなして重複して作らないよう、パイプの失敗も止める
+          set -o pipefail
+          case "${STATUS}" in
+            failed)
+              situation="戻せなかった(戻せたか分からない場合を含む)"
+              ;;
+            "")
+              # rollback.sh が結果を出していないので、failed・unhealthy と違い、ここで注記と実行の概要を出す
+              situation="戻せなかった(ロールバックの step が結果を出さずに止まった。戻せたか分からない)"
+              echo "::error::${WORKER}: ${situation}"
+              {
+                echo "### 自動ロールバック"
+                echo
+                echo "- Worker: ${WORKER}"
+                echo "- 結果: ${situation}"
+              } >>"${GITHUB_STEP_SUMMARY}"
+              ;;
+            unhealthy)
+              situation="戻したが、戻した後の確認が通らない(戻した版: ${VERSION})"
+              ;;
+            *)
+              echo "::error::想定しない status: ${STATUS}"
+              exit 1
+              ;;
+          esac
+
+          # open な issue を全件取り、タイトルの完全一致で絞る(ラベルでは絞らない。--search は使わない。open は 1000 件を超えない前提)
+          number=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --limit 1000 --json number,title |
+            jq -r --arg t "${TITLE}" '[.[] | select(.title == $t)] | if length == 0 then "" else (max_by(.number).number | tostring) end')
+
+          details=$(cat <<EOF
+          - 対象の Worker: ${WORKER}
+          - 状況: ${situation}
+          - 実行: ${RUN_URL}
+
+          手でのロールバックの手順は運用文書を参照してください: ${DOC_URL}
+          EOF
+          )
+
+          if [ -z "${number}" ]; then
+            body=$(cat <<EOF
+          デプロイ(またはデプロイ後の確認)が失敗したため自動ロールバックを試みましたが、本番が健全な状態に戻ったことを確かめられませんでした。
+
+          ${details}
+
+          ---
+          この issue は .github/workflows/deploy.yml が自動で作成しました。本文は作成時点の状態です。
+          EOF
+            )
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --label human --label ops --body "${body}"
+          else
+            body=$(cat <<EOF
+          再び、デプロイ(またはデプロイ後の確認)が失敗したため自動ロールバックを試みましたが、本番が健全な状態に戻ったことを確かめられませんでした。
+
+          ${details}
+
+          ---
+          このコメントは .github/workflows/deploy.yml が自動で付けました。
+          EOF
+            )
+            gh issue comment "${number}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+          fi
