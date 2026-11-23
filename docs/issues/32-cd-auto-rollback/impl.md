@@ -10,11 +10,11 @@
 
 | # | 項目 | 担当 | 状態 |
 |---|---|---|---|
-| 1 | ワークフロー `.github/workflows/deploy.yml` の変更(下の「ワークフロー」の節。D1〜D9・D11・D13・D15〜D17) | kn-implementer | 未着手 |
-| 2 | スクリプト `scripts/cd/current-deployment.sh` と `scripts/cd/rollback.sh` を新しく作る(下の「スクリプト」の節。D2〜D5・D15・D18) | kn-implementer | 未着手 |
-| 3 | 運用文書 `docs/operations/deploy.md` を直す(下の「文書」の節) | kn-implementer | 未着手 |
-| 4 | 検証(下の「検証方法」) | メイン | 未着手 |
-| 5 | コードレビュー(kn-code-reviewer)→ コミット | メイン | 未着手 |
+| 1 | ワークフロー `.github/workflows/deploy.yml` の変更(下の「ワークフロー」の節。D1〜D9・D11・D13・D15〜D17) | kn-implementer | 完了(2026-11-23。VM で実装、collect 済み) |
+| 2 | スクリプト `scripts/cd/current-deployment.sh` と `scripts/cd/rollback.sh` を新しく作る(下の「スクリプト」の節。D2〜D5・D15・D18) | kn-implementer | 完了(2026-11-23。VM で実装、collect 済み) |
+| 3 | 運用文書 `docs/operations/deploy.md` を直す(下の「文書」の節) | kn-implementer | 完了(2026-11-23。VM で実装、collect 済み) |
+| 4 | 検証(下の「検証方法」) | メイン | 完了(2026-11-23。下の「検証の結果」) |
+| 5 | コードレビュー(kn-code-reviewer)→ コミット | メイン | 完了(2026-11-23。コードレビュー 4 回、実装の戻し 3 回) |
 | 6 | 理解度チェック → PR(`Refs #32`)→ マージ | メイン・ユーザー | 未着手 |
 | 7 | マージ後の本番での確認(D6・D10。権限が足りなければ D12) | **ユーザー**(メインがログの読み取りを手伝う) | 未着手 |
 | 8 | 7 の結果を記録し、issue #32 を閉じる(D14)。`deployments create` が今のトークンで通ったら、`docs/operations/cloudflare-api-token.md` の「トークンの仕様」の、Editor だけで足りることを書いた箇条(通った操作を挙げている)に足す。足りずに権限を足したら、D12 のとおり同じ文書と #23 の design.md に書く。`docs/operations/deploy.md` の「手でのロールバック」の注意も、確認の結果に合わせて確定させる | メイン・ユーザー | 未着手 |
@@ -55,28 +55,29 @@ docs/operations/deploy.md        # 変更: 自動ロールバックの説明
     3. **「Deploy api」**(`id: deploy_api`): `cf deploy` の前の ID は、2 の出力 `id` を env で受け取って使う(今は step の中で取っている)。デプロイの後に `current-deployment.sh` で先頭の ID を取り直し、同じなら失敗にする(#24 D18。判定は今のまま)
     4. **「Smoke test api」**(`id: smoke_api`): env `SIMULATE`(入力の値)が `api` なら、`::error::` で「確認を失敗扱いにした(main からの手動実行の入力 simulate_check_failure)」と出して終了コード 1。それ以外は今のまま `smoke.sh`(D6・D15)
     5. **「Record web's current deployment」**(`id: web_before`)、**「Deploy web」**(`id: deploy_web`)、**「Smoke test web」**(`id: smoke_web`): api と同じ(Worker は `kin-niku-log`、`working-directory: apps/web`、`SIMULATE` が `web` のとき失敗扱い)
-    6. **「Roll back」**(`id: rollback`): 下の条件で動く。`scripts/cd/rollback.sh` を呼ぶ
-  - ジョブの `outputs`: `rollback_status: ${{ steps.rollback.outputs.status }}`、`rollback_worker: ${{ steps.rollback.outputs.worker }}`、`rollback_version: ${{ steps.rollback.outputs.version }}`
-- **ロールバックの step**(D1・D2・D11):
-  - 対象は step の結果から決める:
+    6. **「Decide the rollback target」**(`id: rollback_target`、`if: failure()`): 下の規則で対象を 1 か所で決め、出力 `target`(api / web / 空)・`app`・`worker`・`url`・`prior`(戻し先の JSON)にする。4 つの outcome と 2 つの戻し先の JSON は env で受け取る
+    7. **「Roll back」**(`id: rollback`、`if: failure() && steps.rollback_target.outputs.target != ''`): `working-directory` と env は 6 の出力を参照し、`scripts/cd/rollback.sh` を呼ぶ
+  - ジョブの `outputs`: `rollback_target`(6 の `target`)、`rollback_status`(7 の `status`)、`rollback_worker`(7 の `worker`。空なら 6 の `worker`)、`rollback_version`(7 の `version`)
+  - step 単位の `timeout-minutes`(コードレビュー第 1 回 #2): 戻し先の記録 2 分、デプロイ 5 分、api の確認 12 分、web の確認 4 分、Roll back 15 分。`cf` が応答しないまま止まっても、ジョブの時間切れより先に step が失敗して Roll back が動くようにする。根拠: `smoke.sh` の最悪の所要時間は api が約 10.3 分、web が約 2.6 分。api が失敗する経路は 2+5+12+15=34 分に準備の時間を足して 40 分に収まる
+- **ロールバックの対象**(D1・D2・D11。6 の step が決める):
     - `deploy_api` か `smoke_api` の `outcome` が `failure` → api(web はまだデプロイしていない)
     - `deploy_web` か `smoke_web` の `outcome` が `failure` → web(api は戻さない。D1)
     - それ以外(戻し先の記録の失敗、アーティファクトの失敗など)→ 動かない。その Worker はまだデプロイしていないので issue も作らない(D11)。知らせは失敗のメールとログだけ。web の戻し先の記録で失敗した場合、api は新しい版のまま(確認は通っている)
-  - `if:` は `failure()` と、上の 4 つの `outcome` のどれかが `failure` であることの組み合わせ
-  - 対象(`api` / `web`)、Worker 名、確認の URL(`API_URL` / `WEB_URL`)、戻し先の JSON(`steps.api_before.outputs.deployment` か `steps.web_before.outputs.deployment`)は、式で選んで step の `env` に入れる
-  - `working-directory` も「共通」の規則どおり、式で対象のアプリを選ぶ(`apps/api` か `apps/web`。api の step が失敗していれば `apps/api`、そうでなければ `apps/web`)。`rollback.sh` は `bash ../../scripts/cd/rollback.sh` で呼び、`cf` は既定の `node_modules/.bin/cf`(対象のアプリのもの)を使う
+  - 対象の Worker、確認の URL(`API_URL` / `WEB_URL`)、戻し先の JSON(`steps.api_before.outputs.deployment` か `steps.web_before.outputs.deployment`)、アプリのディレクトリも、6 の step がシェルの中で 1 回だけ判定して出力にする(式を何か所にも書かない)
+  - Roll back の `working-directory` は「共通」の規則どおり対象のアプリ(6 の `app`)。`rollback.sh` は `bash ../../scripts/cd/rollback.sh` で呼び、`cf` は既定の `node_modules/.bin/cf`(対象のアプリのもの)を使う
   - 「デプロイの step が失敗したが、新しいデプロイが作られていた」かの判断(D2)は、`rollback.sh` の中で、今の先頭の ID を戻し先の ID と比べて行う。デプロイの step の中でデプロイ後の一覧を取れずに失敗した場合も、`rollback.sh` が一覧を取り直し、取れれば判断を続ける。D2 の「判断できないとき」は、ロールバックの時点で一覧を取れず、新しいデプロイの有無を決められないこと(`rollback.sh` の手順 1・4 の失敗)と解釈した。取り直しで決められるなら、戻すかどうかを正しく判断できるため
 - **`report-rollback` ジョブ**(D5・D7・D8・D9・D13・D17):
   - `needs: deploy`、`runs-on: ubuntu-latest`、`timeout-minutes: 5`
-  - `if: ${{ !cancelled() && contains(fromJSON('["failed","unhealthy"]'), needs.deploy.outputs.rollback_status) }}`(`deploy` が動かなかったとき・ロールバックが動かなかったときは outputs が空で、偽になる。実行を Cancel したときは、ロールバックの途中でも issue を作らない)
+  - `if: ${{ !cancelled() && needs.deploy.outputs.rollback_target != '' && !contains(fromJSON('["rolled_back","not_needed"]'), needs.deploy.outputs.rollback_status) }}`(コードレビュー第 2 回 #1)。対象が決まっていて、結果が「戻した」「戻すものが無い」以外なら作る。結果が空(ロールバックの step が時間切れなどで結果を書かずに止まった)も「戻せなかった」として拾う。`deploy` が動かなかったとき・対象が無いときは `rollback_target` が空で、偽になる。実行を Cancel したときは、ロールバックの途中でも issue を作らない
   - `permissions: contents: read` と `issues: write`(このジョブにだけ `issues: write` を付ける。D13。`contents: read` は手本の reminder と同じにするため)
   - checkout はしない。step の `env` に `GH_TOKEN: ${{ github.token }}`、タイトル、ジョブの outputs の 3 つ、実行の URL(`${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`)、運用文書の URL(`.../blob/main/docs/operations/deploy.md`)を渡す。`gh` には `--repo "${GITHUB_REPOSITORY}"` を付ける
   - 中身は `cf-token-expiry-reminder.yml` と同じ形(D10): `set -o pipefail`。open な issue を `gh issue list --state open --limit 1000 --json number,title` で全件取り、タイトルの完全一致で絞る(`--search` は使わない、ラベルで絞らない)。0 件なら `gh issue create --title "[運用] CD の自動ロールバックに失敗した" --label human --label ops --body ...`。1 件以上なら、番号が最も大きい 1 件に `gh issue comment ... --body ...`(D7・D8)
-  - 本文・コメント(D17): 対象の Worker、状況(`failed` は「戻せなかった」、`unhealthy` は「戻したが確認が通らない」と戻した版)、実行の URL、手でのロールバックの手順(運用文書の URL)への案内。末尾は、本文では「この issue は .github/workflows/deploy.yml が自動で作成しました」、コメントでは「このコメントは .github/workflows/deploy.yml が自動で付けました」
+  - 結果が空のときは、`rollback.sh` が注記と実行の概要を出していないので、このジョブの step で `::error::` と実行の概要に状況と Worker を出す(コードレビュー第 3 回 #1)
+  - 本文・コメント(D17): 対象の Worker、状況(`failed` は「戻せなかった」、空は「戻せなかった(ロールバックの step が結果を出さずに止まった。戻せたか分からない)」、`unhealthy` は「戻したが確認が通らない」と戻した版)、実行の URL、手でのロールバックの手順(運用文書の URL)への案内。末尾は、本文では「この issue は .github/workflows/deploy.yml が自動で作成しました」、コメントでは「このコメントは .github/workflows/deploy.yml が自動で付けました」
   - `gh` が失敗したら step を失敗にする(ワークフローは `deploy` の失敗ですでに失敗で終わる)
   - 重複の判定は「数えてから作る」なので、同時に動くと 2 件作られうる。main の実行はワークフロー単位の `concurrency` で 1 本ずつ動く(#24 D10)ので、`report-rollback` 同士は並行しない
 - 失敗を成功に変える指定(`continue-on-error`)は使わない。ロールバックの step は(引数の誤りと予期せず止まった場合を除き)終了コード 0 で終わる。どちらで終わっても、前の step がすでに失敗しているので、ジョブは失敗で終わる
-- **既存のコメントを直す**: 冒頭の「仕様: docs/issues/24-cd/design.md(D1〜D21)」に #32 の design.md を足す。`deploy` ジョブの「continue-on-error や if: always() は使わない(どこかで失敗したら、後の step は動かない)」を、ロールバックの step(`if: failure()`)と `report-rollback`(`always()`)が入ったことに合わせて直す
+- **既存のコメントを直す**: 冒頭の「仕様: docs/issues/24-cd/design.md(D1〜D21)」に #32 の design.md を足す。`deploy` ジョブの「continue-on-error や if: always() は使わない(どこかで失敗したら、後の step は動かない)」を、ロールバックの step(`if: failure()`)と `report-rollback`(`!cancelled()`)が入ったことに合わせて直す
 
 ### スクリプト
 
@@ -157,6 +158,28 @@ docs/operations/deploy.md        # 変更: 自動ロールバックの説明
 
 5. 本番での確認はマージ後(実装状況 7。D14)
 
+### 検証の結果(2026-11-23)
+
+- 1: `bun run lint` / `bun run check-types` / `bun run build` はメインの環境で通った(VM では Node が無いので build が通らない。変更前でも同じ)。テスト基盤が無いので、単体テスト・受け入れテストは省いた
+- 2: 偽の `cf` での確かめは、ユーザーの了承を得て、メインがスクラッチパッドの使い捨てのスクリプトで行った(コミットしない)。kn-implementer も VM で同じ経路を通している
+  - `current-deployment.sh`: 正常は終了コード 0 で、出力は ID と `versions`(`version_id` 順)だけ。一覧の失敗・JSON の破損・先頭なし・`versions` が空は、どれも終了コード 1
+  - `rollback.sh`(結果は `GITHUB_OUTPUT` の `status` / `version`):
+    - 先頭が戻し先と同じ → `not_needed` / 空(`::warning::`、create は呼ばない)
+    - 最初の一覧の失敗 → `failed` / 空
+    - create の失敗 → `failed` / 空
+    - create が何もせず 0 → `failed` / 空
+    - 戻した後の一覧の失敗 → `failed` / 空
+    - 戻した後の `versions` の不一致 → `failed` / 空
+    - 並びだけ違う一覧で戻せて確認が通る → `rolled_back` / `va,vb`
+    - 戻せたが確認が通らない → `unhealthy` / `va,vb`
+    - 引数の誤り → 終了コード 2、`failed`
+    - 戻し先の `versions` が壊れている(予期せず止まる)→ 終了コード 5、`failed`(1 回だけ)、`version` は空
+  - どの経路でも `status`・`worker`・`version` は 1 回ずつ書かれた。注記の種類と、実行の概要の中身(Worker・結果・戻した版)は経路に合っていた
+  - create の引数に `--bypass-deployment-checks` は無く、`--versions` には戻し先の `versions` が渡っていた。`author_email` は、出力・実行の概要・ログのどこにも出なかった
+  - 確認が通る経路の URL には本番の web(`GET /` だけ)を使った
+- 3: ワークフローの条件式・outputs・permissions はメインが読み合わせた。kn-code-reviewer でも見る
+- 補足: kn-implementer は VM の中で、deploy.md の編集に一時的な Python スクリプトを使ったと報告した(作業ツリーには残っていない)。成果物には影響しない
+
 ---
 
 ## 既知の制約・未解決の疑問
@@ -167,6 +190,9 @@ docs/operations/deploy.md        # 変更: 自動ロールバックの説明
 - 実行を Cancel したときは、自動では戻さず、issue も作らない(手でのロールバックの手順 2 の、人間の判断に任せる)。ロールバックの step より前の Cancel では `failure()` が偽なので、ロールバックの step は動かない。ロールバックの step の実行中の Cancel では、戻しが途中で止まりうるが、`report-rollback` は `!cancelled()` で動かない
 - ジョブが時間切れで止まると、ロールバックの step が動かない恐れがある。上限を 40 分にして避ける(D16)。`report-rollback` は別のジョブなので、40 分の外で動く
 - 戻した後も、反映が全拠点に届くまでは新しい版が応答しうる。戻した後の確認は再試行で吸収する
+- デプロイの step が失敗し、Cloudflare 側ではデプロイが作られた(作られる途中だった)のに、`rollback.sh` が最初に読んだ一覧にまだ出ていないと、`not_needed` になる。その後に確認していない版が先頭になりうる。まれな競合として扱い、取り直しはしない。`not_needed` が出たら、人間が一覧で先頭の版を確かめる(deploy.md の表にも書く)
+- `cf` が応答しないまま止まる場合に備え、`cf` を呼ぶ step と確認の step に step 単位の `timeout-minutes` を付ける(下のコードレビュー第 1 回 #2)。step の時間切れは失敗として扱われ、ロールバックの step が動く。ロールバックの step 自体が時間切れで止まると `rollback.sh` の結果が書かれないことがあるが、`report-rollback` は結果が空でも issue を作る(コードレビュー第 2 回 #1)
+- step 単位の上限の合計は、web が失敗する経路では 2+5+12+2+5+4+15=45 分で、ジョブの 40 分を超えうる(コードレビュー第 2 回 #3)。各 step が上限近くまでかかることが重なる場合だけで、まれと見て詰めない。ジョブが時間切れになると、ロールバックの step と `report-rollback` は動かないことがある(知らせは失敗のメールだけ)。逆に、ロールバックの step の途中で止まった場合は、戻っていることも、結果が空のまま issue が作られることもある。どちらも、人間がダッシュボードで先頭のデプロイの版を確かめる
 - シークレットとデータは戻らない(design.md の調査結果)
 - 一覧の JSON の形に依存している(`cf` は beta)。`cf` を上げるときは、戻し先の記録と戻したことの確かめが動くかを見る
 
@@ -236,3 +262,44 @@ docs/operations/deploy.md        # 変更: 自動ロールバックの説明
 | 7 | deploy.md の文言の引用が実物と違う | 場所と実際の文言で示した | 対応済み |
 | 8 | 直した後の書き方と、マージ後の確定 | 実装時点の書き方を指定し、実装状況 8 に deploy.md の確定を足した | 対応済み |
 | 9 | `not_needed` の括弧書き | 足した | 対応済み |
+
+### コードレビュー第 1 回(2026-11-23、kn-code-reviewer、8 件: すべて実装判断。中 1 / 低 7)
+
+AC-6・AC-7・AC-8 の各項目は満たしていると判定された。仕様の疑問は無し。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | Roll back の step で、対象を選ぶ同じ式が 6 回出てくる。一部だけ直し忘れると対象と戻し先が食い違う | `if: failure()` の小さな step で対象(`target`・`app`・Worker・URL・戻し先)を 1 か所で決めて出力にし、Roll back はそれを参照する | 対応済み(戻り 1 回目) |
+| 2 | `cf` にタイムアウトが無く、止まるとジョブの時間切れでロールバックが動かない | `cf` を呼ぶ step と確認の step に step 単位の `timeout-minutes` を付け、ジョブの残り時間で Roll back が動くようにする | 対応済み(戻り 1 回目) |
+| 3 | デプロイが一覧に出る前に読むと `not_needed` になる競合 | 取り直しはせず、既知の制約に書き、deploy.md の `not_needed` の行に「先頭の版を一覧で確かめる」を足す | 対応済み(戻り 1 回目) |
+| 4 | issue の本文の 1 行目が D2 の経路と `unhealthy` に合わない | 両方の経路と状況に合う文にする | 対応済み(戻り 1 回目) |
+| 5 | 失敗扱いの入力を使った後の本番の状態が書かれていない | deploy.md に「実行の後、本番はデプロイの前の版のまま。main と揃えるには入力なしで main から手動実行する」を足す | 対応済み(戻り 1 回目) |
+| 6 | impl.md の `always()` と実装の `!cancelled()` の食い違い | メインが impl.md を直した | 対応済み |
+| 7 | 新しい 2 つのスクリプトに実行権限が無い | 既存の `scripts/cd/` に合わせて実行権限を付ける | 対応済み(戻り 1 回目) |
+| 8 | deploy.md の冒頭に #32 の design.md が無い。「design.md の D20」が曖昧 | 冒頭に足し、「#24 の design.md の D20」にする | 対応済み(戻り 1 回目) |
+
+### コードレビュー第 2 回(2026-11-23、kn-code-reviewer、3 件: すべて実装判断。高 1 / 中 1 / 低 1)
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | Roll back の step 自体が時間切れで止まると、結果が空になり issue も注記も出ない | `rollback_target` をジョブの outputs に出し、`report-rollback` の条件を「対象があり、結果が `rolled_back`・`not_needed` 以外(空を含む)」にする。空は「戻せなかった(結果を出さずに止まった)」と書く。deploy.md の表にも足す | 対応済み(戻り 2 回目) |
+| 2 | impl.md の技術的判断が `rollback_target` と step 単位の `timeout-minutes` を反映していない | メインが impl.md を直した | 対応済み |
+| 3 | web の経路で step の上限の合計が 45 分になり、ジョブの 40 分を超えうる | まれと見て詰めず、既知の制約に書いた。#1 で Roll back の step の時間切れは拾える | 対応済み(既知の制約) |
+
+### コードレビュー第 3 回(2026-11-23、kn-code-reviewer、2 件: すべて実装判断。中 1 / 低 1)
+
+AC-6・AC-7・AC-8 の退行は無し。仕様の疑問は無し。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | 結果が空のとき、issue は作るが、error の注記と実行の概要に「戻せなかった」と対象の Worker が出ない(`trap` まで届かなかった場合) | `report-rollback` の step で、結果が空のときに `::error::` と `GITHUB_STEP_SUMMARY` に状況と Worker を出す | 対応済み(戻り 3 回目) |
+| 2 | deploy.md の、ジョブの時間切れ・Cancel のときに「自動では戻さず issue も作られない」の言い切りが実際と合わないことがある | ロールバックの途中で止まった場合は、戻っていることも issue が作られることもある、ダッシュボードで先頭の版を確かめる、の書き方にする。impl.md の既知の制約もメインが合わせる | 対応済み(戻り 3 回目) |
+
+### コードレビュー第 4 回(2026-11-23、kn-code-reviewer、2 件: すべて実装判断。低 2)
+
+マージを止めるべき指摘(確度「中」以上)は無し。AC-6・AC-7・AC-8 の退行は無し。仕様の疑問は無し。実装の戻しは上限の 3 回を使い切ったので、#2 は直さずに見送る。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | impl.md の技術的判断に、結果が空のときに `report-rollback` が注記と実行の概要を出すことが書かれていない | メインが impl.md に足した | 対応済み |
+| 2 | deploy.md の時間切れ・Cancel の箇条で、Cancel では失敗のメールが届かないことがあり、issue が作られうるのは時間切れのときだけ | 「〜こともある」の書き方で誤りではなく、最後の「ダッシュボードで先頭の版を確かめる」で人間の行動は正しく導ける。戻しの上限を使い切ったので見送る。ユーザーが直したい場合は、理解度チェックの後の改善提案として扱う | 見送り |
