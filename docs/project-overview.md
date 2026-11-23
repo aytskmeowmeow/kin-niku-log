@@ -91,7 +91,7 @@ scaffold 各レイヤーの繋がりは [sample-users-crud.md](./sample-users-cr
 | マイグレーション | `drizzle-kit`(`apps/api/drizzle.config.ts` が `.dev.vars` を読み、`DATABASE_URL_DIRECT` を優先、無ければ `DATABASE_URL`) |
 | Node | Volta でルート `package.json` に 22.23.5 を固定 |
 | `package.json` の `name` | `kin-niku-log` |
-| CI/CD | 未設定(Phase 2 で GitHub Actions を導入) |
+| CI/CD | CD(GitHub Actions による main へのマージ時の自動デプロイ)を導入済み(#24 で導入)。PR 時の CI は未設定(Phase 2 で導入) |
 
 monorepo は Turborepo + Bun workspaces(`apps/*`, `packages/*`)。
 `packages/schema`(FE/BE 共通 Zod スキーマ)、`packages/ui`、`packages/eslint-config`、
@@ -180,6 +180,7 @@ Step 5                     #8 E2E + docs
 
 - PR 時: lint / typecheck / test を自動実行
 - main merge 時: `apps/web` → Cloudflare Workers(静的アセット、Worker `kin-niku-log`)、`apps/api` → Cloudflare Workers へ自動デプロイ
+  - CD の仕組み・手動デプロイ・ロールバックの手順: [`docs/operations/deploy.md`](operations/deploy.md)
   - デプロイに使う Cloudflare API トークンの仕様と運用: [`docs/operations/cloudflare-api-token.md`](operations/cloudflare-api-token.md)
 - **本番マイグレーション適用のみ** GitHub Environments の Required reviewers 機能で
   人間承認を挟む(Human on the loop の主要な実装ポイント)

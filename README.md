@@ -149,4 +149,5 @@ export const mySchema = z.object({ ... })
 ## ドキュメント
 
 - [プロジェクト概要](docs/project-overview.md) — 目的・技術スタックの選定理由・ロードマップ・タスク管理の運用
+- [デプロイ](docs/operations/deploy.md) — main へのマージで動く CD の仕組み、手動デプロイ(予備)、ロールバックの手順
 - [サンプル: users CRUD](docs/sample-users-crud.md) — 各レイヤーの繋がりを users の実装例で解説

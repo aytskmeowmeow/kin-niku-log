@@ -36,7 +36,7 @@ GitHub Actions からのデプロイ(CD、#24)で使う Cloudflare API トーク
 4. 作成し、表示されたトークンの値をコピーする(値は一度しか表示されない)。トークンの Summary の JSON の `expires_on` が **`<終了日>T14:59:59Z`(終了日の日本時間 23:59:59)** かを確かめる。違っていたら(例: 日本時間以外のタイムゾーンのブラウザで発行した)、リマインドの判定(`scripts/cf-token-expiry.sh`)とこの文書を直す必要があるので、Claude に伝える
 5. GitHub のリポジトリの **Settings → Environments → New environment** で `production` を作る
    - Deployment branches and tags: **Selected branches and tags** にし、`main` だけを足す
-   - Required reviewers は今は付けない(付けるかは #24 で決める)
+   - Required reviewers は、アプリのデプロイには付けない(#24 の D8。承認を挟むのは本番マイグレーションだけ)
 6. `production` の **Environment secrets** に `CLOUDFLARE_API_TOKEN`(4 の値)と `CLOUDFLARE_ACCOUNT_ID` を登録する。アカウント ID は `cloudflare.config.ts` などリポジトリのファイルに書かない
 7. カレンダーに、**終了日の 14 日前から終了日まで** の期間の予定を 1 件入れる(D11)。この期間のどこかで入れ替える
 8. この文書の「有効期限」の行を終了日に更新し、main にマージする
@@ -47,7 +47,7 @@ Roll は使わず、新しいトークンを発行してから古いトークン
 
 1. 「初回の発行」の 1〜4 と同じ設定で、新しいトークンを発行する
 2. Environment `production` の `CLOUDFLARE_API_TOKEN` を新しい値に更新する
-3. CD を 1 回動かして、デプロイが通ることを確かめる(#24 で CD ができてから)
+3. CD を 1 回動かして、デプロイが通ることを確かめる。リポジトリの **Actions** でワークフロー「Deploy」を開き、**Run workflow** でブランチ `main` を選んで手動実行する([`deploy.md`](deploy.md))
 4. 古いトークンをダッシュボードで削除する
 5. この文書の「有効期限」の行を新しい終了日に更新し、main にマージする
 6. カレンダーの期間の予定を、新しい終了日に合わせて入れ直す(14 日前から終了日まで)
@@ -71,8 +71,7 @@ CD のトークンは Worker を作れない(作成には Workers プロダク�
 
 ## ローカルの認証情報
 
-- #24 で CD が動くまでは、今の `cf auth login`(OAuth、ほぼ全スコープ)のまま
-- #24 の完了後は、**ふだんは `cf auth logout` でログアウトしておく**。Worker の作成、シークレットの登録、障害時の手動デプロイなど、必要なときだけ人間が `cf auth login` でログインし、終わったらログアウトする(D4)
+- **ふだんは `cf auth logout` でログアウトしておく**(CD が動くので、ローカルの `cf` の OAuth ログイン(ほぼ全スコープ)は常には要らない)。Worker の作成、シークレットの登録、障害時の手動デプロイなど、必要なときだけ人間が `cf auth login` でログインし、終わったらログアウトする(D4)
 - ログインの頻度や手間が問題になったら、スコープを絞ったログイン(`cf auth login --scopes ...`)を検討する
 
 ## リマインドの仕組み
