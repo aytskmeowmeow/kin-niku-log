@@ -63,6 +63,8 @@ CD で使う Cloudflare API トークンの仕様と入れ替えは [`cloudflare
 
 CD が使えないとき(トークンの期限切れ・障害時)の予備。人間が行う。エージェントは本番への `cf deploy` を実行しない。
 
+`cf` は、`apps/api` などのディレクトリで `node_modules/.bin/cf` として呼ぶ(グローバルには入れていない。シェルに同じ名前のエイリアスや関数があると、`cf` だけではそちらが動く)。
+
 1. `cf auth login` でログインする(ふだんはログアウトしている。[`cloudflare-api-token.md`](cloudflare-api-token.md) の「ローカルの認証情報」)
 2. 依存を入れ、api と web を `cf build` する(`apps/api` と `apps/web` のそれぞれで)
 3. api の本番バンドルの確認: リポジトリのルートで `scripts/cd/check-api-bundle.sh`
