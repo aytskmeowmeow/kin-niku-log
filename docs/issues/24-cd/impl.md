@@ -1,6 +1,6 @@
 # #24 GitHub Actions から本番環境へ自動デプロイ(CD) — impl.md
 
-- 仕様: `docs/issues/24-cd/design.md`(決定事項 D1〜D21)
+- 仕様: `docs/issues/24-cd/design.md`(決定事項 D1〜D22)
 - ブランチ: `feat/24-cd`
 - PR は `Refs #24` で作り、issue を自動で閉じない(D17)
 
@@ -10,12 +10,12 @@
 
 | # | 項目 | 担当 | 状態 |
 |---|---|---|---|
-| 1 | ワークフロー `.github/workflows/deploy.yml`(D1〜D6・D9・D10・D12・D14・D15・D18) | kn-implementer | 未着手 |
-| 2 | スクリプト `scripts/cd/check-api-bundle.sh`(D5 の (3)・D21)と `scripts/cd/smoke.sh`(D6) | kn-implementer | 未着手 |
-| 3 | 運用文書 `docs/operations/deploy.md` を新規に作り、README と `docs/project-overview.md` からリンクする。`docs/project-overview.md` の CI/CD の現状の記述を直す(D11・D16 の (1)) | kn-implementer | 未着手 |
-| 4 | 運用文書 `docs/operations/cloudflare-api-token.md` を直す(下の「文書」の節。D1・D8・D16 の (3)・#23 D4) | kn-implementer | 未着手 |
-| 5 | 検証(下の「検証方法」) | メイン | 未着手 |
-| 6 | コードレビュー(kn-code-reviewer)→ コミット | メイン | 未着手 |
+| 1 | ワークフロー `.github/workflows/deploy.yml`(D1〜D6・D9・D10・D12・D14・D15・D18) | kn-implementer | 完了(2026-11-19、実装第 2 回まで。以後は変更なし) |
+| 2 | スクリプト `scripts/cd/check-api-bundle.sh`(D5 の (3)・D21)と `scripts/cd/smoke.sh`(D6) | kn-implementer | 完了(2026-11-19、実装第 2 回まで。以後は変更なし) |
+| 3 | 運用文書 `docs/operations/deploy.md` を新規に作り、README と `docs/project-overview.md` からリンクする。`docs/project-overview.md` の CI/CD の現状の記述を直す(D11・D16 の (1)) | kn-implementer | 完了(2026-11-23、実装第 5 回まで) |
+| 4 | 運用文書 `docs/operations/cloudflare-api-token.md` を直す(下の「文書」の節。D1・D8・D16 の (3)・#23 D4) | kn-implementer | 完了(2026-11-19、実装第 1 回。以後は変更なし) |
+| 5 | 検証(下の「検証方法」) | メイン | 完了(2026-11-19。「検証の結果」) |
+| 6 | コードレビュー(kn-code-reviewer)→ コミット | メイン | コードレビューは完了(第 5 回で終了)。コミットは進行中 |
 | 7 | 理解度チェック → PR(`Refs #24`)→ マージ | メイン・ユーザー | 未着手 |
 | 8 | マージ後の本番での確認: 最初の CD の実行とトークンの権限(#23 D6・D19)/ main からの手動実行(D1)/ main 以外からの手動実行(D12)/ わざと壊した検証用のブランチからの実行(D13 の抜き取り: lint・型・`localhost:3000`)/ main の順番待ち(D10)/ main 以外が順番待ちに入らないこと(D15)/ PR で動かないこととプレビュー URL(D9) | **ユーザー**(メインがログの読み取りを手伝う) | 未着手 |
 | 9 | 最初の CD の実行の結果で、トークンの権限の記述を確定させる後続の PR(D16 の (2)・D17・D19)。権限を足した場合は #23 の design.md にも追記する | メイン | 未着手 |
@@ -68,7 +68,7 @@
 - Node は `actions/setup-node`(入力 `node-version`)で 22.23.5(ルートの `volta.node` と同じ)。`cf` の実行ファイルは `#!/usr/bin/env node` で Node で動き、`cf` の engines(`^22.23.0 || ^24.22.0 || ^26.12.0`)に合う版に固定する
 - bun は `oven-sh/setup-bun`(入力 `bun-version`)で 1.4.4(ルートの `packageManager` と同じ)。依存は `bun install --frozen-lockfile`
 - `cf` は各アプリの devDependency で、ルートの `node_modules/.bin` には無い。各アプリのディレクトリ(`working-directory: apps/api` など)で `node_modules/.bin/cf` を実行する
-- ジョブの `env` に `CF_SEND_TELEMETRY: "false"`
+- ワークフロー単位の `env` に `CF_SEND_TELEMETRY: "false"`
 - `permissions: contents: read` だけ。`actions/checkout` は `persist-credentials: false`
 - アクションはコミット SHA で固定する(既存の `cf-token-expiry-reminder.yml` と同じ)。実装エージェントの VM は GitHub に通信できないので、メインが調べた次の値を使う(2026-11-19 確認。いずれも公開から 1 か月以上たった安定版):
 
@@ -80,7 +80,7 @@
 | `actions/upload-artifact` | v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 | `actions/download-artifact` | v8.0.2 | `9000827ccba6bdab643e8b6fd33ac0654aef8333` |
 
-- 各ジョブに `timeout-minutes` を付ける(目安: `check` 15 分、`deploy` 15 分)
+- 各ジョブに `timeout-minutes` を付ける(`check` 15 分、`deploy` 25 分。`deploy` はデプロイ後の確認の再試行が最悪の場合に長くかかるため、余裕を持たせる)
 
 ### デプロイ前の確認(`check` ジョブ、D5)
 
@@ -93,9 +93,9 @@
 
 `scripts/cd/check-api-bundle.sh`:
 
-- 対象は、api の **実行されるバンドルだけ**(D21): `apps/api/.cloudflare/output/v0/workers/default/bundle/` の下の、`.map` 以外の `.js` ファイルすべて(今は `index.js` だけ。将来チャンクに分かれても調べ漏らさないため)。同じディレクトリの `index.js.map`(ソースマップ)には元のソースが入っていて、本番のビルドでも `/doc` や `localhost:3000` を含むので対象にしない。`bundle/` の外(アセットなど)も対象にしない
+- 対象は、api の **実行されるバンドルだけ**(D21): `apps/api/.cloudflare/output/v0/workers/default/bundle/` の下の、`.map` 以外の `.js`・`.mjs`・`.cjs` ファイルすべてと、`mainModule` が指すファイル(拡張子によらず)。今は `index.js` だけ。将来チャンクに分かれたり拡張子が変わったりしても調べ漏らさないため。調べたファイルが 0 個なら失敗にする。同じディレクトリの `index.js.map`(ソースマップ)には元のソースが入っていて、本番のビルドでも `/doc` や `localhost:3000` を含むので対象にしない。`bundle/` の外(アセットなど)も対象にしない
 - メインモジュールがあることも確かめる: `worker.config.json` の `manifest.mainModule`(`bundle/` からの相対パス。今の値は `index.js`)が指すファイルが無ければ失敗にする(調べるものが無いのに通さない)
-- 調べるもの: `localhost:3000` / `/doc` のルートの登録 / `openapi.yaml` の中身(ファイルに特有の文字列で判定する)
+- 調べるもの: `localhost:3000` / `/doc` のルートの登録 / `/openapi.yaml` のルートの登録 / `openapi.yaml` の中身(ファイルに特有の文字列で判定する)。ルートのパスは、バンドラの更新で引用符が変わっても見逃さないよう、引用符の種類(二重・単一・バッククォート)によらず拾う
 - 注意(#20 impl.md): `@hono/swagger-ui` の import は本番のバンドルにも残り、モジュールの定数がバンドルに入る。判定の文字列は、今の本番ビルドでは通り、開発用のビルドでは失敗するものを選ぶ。実際のバンドルを見て決め、選んだ理由をスクリプトのコメントに 1〜2 行で残す
 - 開発用のビルドの作り方: api の `isDev` は `import.meta.env.DEV` で、Vite はこれを `--mode` ではなく `NODE_ENV` で決める(`NODE_ENV` が `production` でなければ DEV が true。build の既定の `NODE_ENV` は production)。`vite build --mode development` だけでは `isDev` は false のまま。`NODE_ENV=development` を付けて api をビルドし、そのバンドルに `/doc` のルートなどが実際に入ったことを先に確かめてから、判定の文字列を選ぶ。確かめた後は、通常の `cf build` で本番のビルドに戻す
 - `.cloudflare/` は gitignore されている。VM の作業場所にはビルドの成果物が無いので、VM の中で `cf build` してバンドルを作る(`cf build` は認証不要)
@@ -134,7 +134,7 @@
 
 ### 文書
 
-- `docs/operations/deploy.md`(D11): CD の仕組み(起動条件、main 以外からの手動実行の振る舞い、デプロイの順序と確認の時点、デプロイ前・後の確認の中身、失敗したときの扱い(通知だけで、戻すかは人間が判断する。自動ロールバックは #32))/ 手動デプロイの手順(CD が使えないとき(トークンの期限切れ・障害時)の予備。#20 の impl.md の「デプロイ手順」を今の形に直す: 人間が `cf auth login` でログインして行い、終わったらログアウトする、順序は api → web、確認は CD と同じスクリプトを使える)/ 手でのロールバックの手順(ダッシュボードの Deployments から戻す方法を主にする。手で戻しても、次に main の CD が動くと(古い実行の Re-run を含む)そのときの成果物で上書きされる、という注意を添える。CD のやり直しは main からの手動実行で行い、Re-run は使わない(アーティファクトの保持は 1 日で、1 日を過ぎて失敗したジョブだけを Re-run すると `deploy` が成果物を取れずに失敗する。全ジョブの Re-run は、その実行の古いコミットで作り直して上書きする))/ 手動デプロイと CD の関係
+- `docs/operations/deploy.md`(D11): CD の仕組み(起動条件、main 以外からの手動実行の振る舞い、デプロイの順序と確認の時点、デプロイ前・後の確認の中身、失敗したときの扱い(通知だけで、戻すかは人間が判断する。自動ロールバックは #32))/ 手動デプロイの手順(CD が使えないとき(トークンの期限切れ・障害時)の予備。#20 の impl.md の「デプロイ手順」を今の形に直す: 人間が `cf auth login` でログインして行い、終わったらログアウトする、順序は api → web、確認は CD と同じスクリプトを使える)/ 手でのロールバックの手順(ダッシュボードの Deployments から戻す方法を主にする。手で戻しても、次に main の CD が動くと(古い実行の Re-run を含む)そのときの成果物で上書きされる、という注意を添える。CD のやり直しは main からの手動実行で行い、Re-run は使わない(アーティファクトの保持は 1 日で、1 日を過ぎて失敗したジョブだけを Re-run すると `deploy` が成果物を取れずに失敗する。全ジョブの Re-run は、その実行の古いコミットで作り直して上書きする))/ 手動デプロイと CD の関係。手でのロールバックは、コードレビューを受けて、CD を止める(Disable)→ 実行中・待ちの run の Cancel → 戻す → 原因を直した PR のマージ → CD を再開(Enable)→ main からの手動実行、の流れにした
 - `docs/operations/cloudflare-api-token.md`:
   - 「入れ替え」の手順 3: CD を動かす方法を、Actions のワークフロー「Deploy」(名前は実装に合わせる)を main で手動実行する形で書く
   - 「ローカルの認証情報」: 「#24 で CD が動くまでは〜」の記述を外し、ふだんはログアウトしておくことを今の運用として書く
@@ -164,6 +164,22 @@ kn-implementer にも、VM の中(認証情報なし、`.cloudflare/` と turbo 
 
 マージ後の本番での確認はユーザーが行い、メインが実行ログの読み取りを手伝う(実装状況 8)。
 
+### 検証の結果(2026-11-19)
+
+kn-implementer(VM、Linux、認証情報なし。VM に Node が無かったため Node 24.22.3 を入れた。CI は 22.23.5):
+
+- `.cloudflare/` と turbo のキャッシュを消した作業場所で、`bun install --frozen-lockfile` → lint → check-types → api と web の `cf build` → dry-run → `check-api-bundle.sh` を通しで流し、すべて通った。`bun run build` も通った
+- `check-api-bundle.sh` の判定の文字列は `localhost:3000` / `"/doc"` / `"/openapi.yaml"` / `openapi: ` の 4 つ(固定文字列。実装第 1 回の時点。第 2 回でルートのパスは引用符によらない正規表現に変えた)。`swagger` は本番にも `@hono/swagger-ui` の import で残るため使わない
+- `smoke.sh`: VM の dev サーバーに向けて、api の `/doc`・`/openapi.yaml` が 200 で失敗、`SMOKE_FOREIGN_ORIGIN=http://localhost:3000` で許可ヘッダーにより失敗、web は通る、サーバーの無いポートは `000` で失敗、引数が不正なら終了コード 2。本番の URL には VM から届かなかった(プロキシが 403)
+
+メイン(macOS):
+
+1. `bun install --frozen-lockfile`(変更なし)/ `bun run lint` / `bun run check-types` / `bun run build`: 成功
+2. api と web の `cf build` → `cf deploy --prebuilt --mode production --dry-run`: 成功(api 62.00 KiB、web 0.00 KiB、ともに `No bindings found.`)
+3. `check-api-bundle.sh`: 本番ビルドで `ok`(.js 1 個)。`NODE_ENV=development` のビルド(バンドルに `"/doc"` が入ったことを先に確かめた)では 4 つとも報告して終了コード 1。Build Output が無いディレクトリでは終了コード 1。確かめた後に本番ビルドに戻し、`ok` を確かめた
+4. `smoke.sh` を本番の URL に向けて、api(4 項目)・web とも通った。ローカルの dev サーバーの api に向けて `/doc`・`/openapi.yaml` が 200 で失敗、`SMOKE_FOREIGN_ORIGIN=http://localhost:3000` で許可ヘッダーにより失敗。サーバーの無いポートの web は `000` で失敗。引数が不正なら終了コード 2
+5. ワークフローの YAML は機械的な構文検証をしていない(actionlint なし)
+
 ---
 
 ## 既知の制約・未解決の疑問
@@ -174,6 +190,9 @@ kn-implementer にも、VM の中(認証情報なし、`.cloudflare/` と turbo 
 - **未確認:** 前回と同じ内容のまま `cf deploy` したときに、新しいデプロイが作られるか。`cf` が「変更なし」として新しいデプロイを作らずに終了コード 0 で終わると、ドキュメントだけのマージ(D2 でデプロイの対象)や main からの手動実行の連続のたびに、D18 の確認で失敗する。最初の CD と、その直後の main からの手動実行で分かる。省かれると分かったら、D2 と D18 の関係を design.md の未決事項に上げる
 - デプロイ直後に古い版が応答すると、デプロイ後の確認の一部(404・許可ヘッダーが無いこと)は新しい版が壊れていても通りうる(D20。受け入れ済み)
 - 本番の URL はワークフローと api の `PRODUCTION_WEB_ORIGIN` の 2 か所にある。Worker 名や workers.dev のサブドメインを変えるときは両方を直す
+- deploy.md の手でのロールバックの手順 2(D22。コードレビュー第 5 回の指摘で、実装に戻さず記録したもの):
+  - 戻す対象は「Cancel した run が出したデプロイが Deployments の先頭にあるか」で決めるが、先頭のデプロイがどの run のものかを見分ける方法は書いていない(ダッシュボードの時刻と run の step の時刻を突き合わせるしかない)。また、Cancel の前に Success で終わった run の版も戻す対象になり、不要な戻しが 1 回増えることがある。本番は壊れない(戻し先は人が選び、手順 5 の smoke.sh で確かめ、手順 6〜8 で main の版に戻る)。見直すときは、判断の軸を「両 Worker の先頭が、戻したい(正常と分かっている)バージョンか」に変えると run の見分けがいらなくなる(#32 で手でのロールバックを見直すときの候補)
+  - 手順 2 の「最後に、…もう一度確かめる」の後ろに Deployments で判断する項目があり、「最後に」が手順 2 の最後ではない(読みやすさだけ。順番は読み取れる)
 
 ---
 
@@ -223,3 +242,86 @@ kn-implementer にも、VM の中(認証情報なし、`.cloudflare/` と turbo 
 | S1 | 同じ内容のデプロイが省かれる場合、D2 と D18 がぶつかる | 6 の確認の結果を待つ。省かれると分かったら design.md の未決事項に上げる | 保留(条件付き) |
 
 - 指摘以外: design.md の決定事項の表の並び(D18〜D21 が D13 の後にあった)を番号順に直した
+
+### コードレビュー第 1 回(2026-11-19、7 件。すべて実装で閉じる)
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | `check-api-bundle.sh` は調べたファイルが 0 個でも通る。`.mjs`/`.cjs` に変わると何も調べずに通る | 0 個なら失敗にし、`mainModule` が指すファイルを必ず対象に含め、`.mjs`/`.cjs` も対象にする。実装に戻す | 実装第 2 回で対応 |
+| 2 | `"/doc"` などの判定が二重引用符に依存している | 引用符の種類に依存しない判定にする。実装に戻す | 実装第 2 回で対応 |
+| 3 | `deploy` の `timeout-minutes: 15` が、デプロイ後の確認の最悪の所要時間に対して短い | `deploy` を 25 分にする(impl.md も直した)。実装に戻す | 実装第 2 回で対応 |
+| 4 | impl.md の `CF_SEND_TELEMETRY` の置き場所の記述が実装とずれている | impl.md を「ワークフロー単位の `env`」に直した | 対応済み |
+| 5 | スクリプトを実行ビットに頼って直接実行している。既存のワークフローは `bash <スクリプト>` の形 | 既存に合わせて `bash scripts/cd/...` で呼ぶ。実装に戻す | 実装第 2 回で対応 |
+| 6 | deploy.md の「CD が動かないようにしてから戻す」の方法が無い | 方法(Actions でワークフローを Disable にし、直したら Enable に戻す)を書く。実装に戻す | 実装第 2 回で対応 |
+| 7 | 「Deploy api」と「Deploy web」の `run` が同じ内容で重複している | 対応見送り。重複は 2 か所で、共通化の目安(3 回以上)に届かない。`cf` を上げたときは両方を見る(既知の制約に `cf` の出力への依存を書いてある) | 対応見送り |
+
+- lint 化の候補: なし
+
+### 実装第 2 回の検証(2026-11-19、メイン、macOS)
+
+- `bun run lint` / `bun run check-types` / `bun run build`: 成功
+- `check-api-bundle.sh`: 本番ビルドで `ok`(1 個)、`NODE_ENV=development` のビルドで 4 つとも報告して終了コード 1、本番ビルドに戻して `ok`
+- kn-implementer(VM)の報告: 一時ディレクトリに写した Build Output で、単一引用符・バッククォートの混入、`.mjs` への変更、拡張子の無い `mainModule`、`mainModule` の欠落をいずれも検出した。調べるファイルが 0 個になる前に `mainModule` の確認で止まるため、0 個の判定は単独では再現できない(防御として残す)
+
+### コードレビュー第 2 回(2026-11-19、3 件。すべて実装で閉じる)
+
+第 1 回の修正 1・2・3・5 は妥当と確認された。AC の失敗時の経路(D13)も修正の後も保たれている。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | deploy.md の「CD を止めてから戻す」で、Enable に戻した後のデプロイが無い。無効の間のマージはデプロイされず、main と本番がずれたまま残る(D2) | Enable に戻したら main からの手動実行で 1 回デプロイする、と書き足す。実装に戻す | 実装第 3 回で対応 |
+| 2 | 同じ箇所で、Disable しても実行中・待ちの run は取り消されない。手で戻した後にその run が上書きしうる | Disable の後に、実行中・待ちの「Deploy」の run が無いことを確かめ、あれば Cancel してから戻す、と書き足す。実装に戻す | 実装第 3 回で対応 |
+| 3 | impl.md の技術的判断(バンドルの確認の対象と判定)が、第 1 回の修正後の実装とずれている | impl.md を実装に合わせて直した | 対応済み |
+
+- lint 化の候補: なし
+
+### 実装第 3 回の検証(2026-11-19、メイン)
+
+- 変更は `docs/operations/deploy.md` の「手でのロールバック」だけ(番号付きの手順 8 つに組み直し、Disable の後の run の確認と Cancel、Enable の後の main からの手動実行を足した)。コード・設定に触れていないので、lint / check-types / build は前回の結果のまま
+
+### コードレビュー第 3 回(2026-11-19、4 件。すべて実装で閉じる)
+
+第 2 回の指摘 1・3 の対応は妥当と確認された。ワークフローとスクリプトは第 2 回から変わっておらず、D13 の失敗時の経路は保たれている。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | deploy.md の手でのロールバックの手順 2 に、Cancel の順が無い。実行中の run を先に Cancel すると、待っていた run が走り出す | 順番待ちの run を先に、実行中の run を後に Cancel し、最後に 1 本も残っていないことを確かめる、と書く。実装に戻す | 実装第 4 回で対応 |
+| 2 | 手順 2 の「どちらの Worker のデプロイも終わっていないことを確かめてから次へ進む」が、何をすればよいか分からない | Cancel した run が止まったことを確かめ、その run がデプロイの step を終えていたら、そのデプロイも戻す対象に含める、と書く。実装に戻す | 実装第 4 回で対応 |
+| 3 | impl.md の技術的判断の deploy.md の要旨に、手でのロールバックの流れが無い | impl.md に流れを足した | 対応済み |
+| 4 | impl.md のバンドルの確認の「調べるもの」に `/openapi.yaml` のルートが無い。検証の結果の判定の文字列の記述が、今の判定と読み違えられる | 「調べるもの」に足し、検証の結果に時点の注記を添えた | 対応済み |
+
+- lint 化の候補: なし
+
+### 実装第 4 回の検証(2026-11-19、メイン)
+
+- 変更は `docs/operations/deploy.md` の手でのロールバックの手順 2 だけ(Cancel の順、止まったことの確認、最後の確認、終えていたデプロイの扱い)。コード・設定に触れていないので、lint / check-types / build は前回の結果のまま
+- 実装に戻した回数は 3 回(第 2〜4 回)で、上限に達した
+
+### コードレビュー第 4 回(2026-11-19、2 件)
+
+第 3 回の指摘 1〜4 の対応は妥当と確認された。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | deploy.md の手でのロールバックの手順 2 で、戻す対象を「run がデプロイの step を終えていたか」で決めている。step の途中で Cancel が効いても、新しい版が出ていることがある | 実装の戻りが上限(3 回)に達したため design.md の U12 に上げた。ユーザーが ① を選び(D22)、実装第 5 回で対応 | 実装第 5 回で対応 |
+| 2 | 同じ手順で「Cancelled になったことを確かめる」とあるが、Cancel の前に終わった run は Success / Failure になり、先へ進めない | 同上 | 実装第 5 回で対応 |
+
+- lint 化の候補: なし
+
+### 実装第 5 回の検証(2026-11-23、メイン)
+
+- U12 でユーザーが ① を選び(D22)、上限を超える 1 回として実装に戻した
+- 変更は `docs/operations/deploy.md` の手でのロールバックの手順 2 だけ(止まったことの確認を Cancelled・Success・Failure のいずれでもよいとし、戻す対象は Cancel の後に両 Worker の Deployments の先頭を見て判断する)。コード・設定に触れていないので、lint / check-types / build は前回の結果のまま
+- D22 により、この節へのこの後のレビュー指摘は実装に戻さず、既知の制約として記録する
+
+### コードレビュー第 5 回(2026-11-23、3 件)
+
+第 4 回の指摘 1・2 は D22 のとおりに直ったと確認された。本番を壊しうる問題は無い。
+
+| # | 指摘 | 対応 | 状態 |
+|---|---|---|---|
+| 1 | deploy.md の手でのロールバックの手順 2 で、先頭のデプロイがどの run のものかを見分ける方法が無い。Cancel の前に Success で終わった run の版も戻す対象になる(重大さ: 低。本番は壊さない) | D22 により実装に戻さず、既知の制約に記録した | 既知の制約 |
+| 2 | 同じ手順 2 で「最後に」が最後の項目ではなくなった(重大さ: なし。読みやすさだけ) | 同上 | 既知の制約 |
+| 3 | impl.md の冒頭(D1〜D21)と実装状況の表(各項目の回数・日付、コードレビューが未着手のまま)が実態とずれている | impl.md を直した | 対応済み |
+
+- lint 化の候補: なし
